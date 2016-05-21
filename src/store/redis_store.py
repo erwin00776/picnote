@@ -6,6 +6,54 @@ class RedisStore:
     def __init__(self):
         self.r = redis.Redis(port=6379)
 
+
+    def __convert_second_tblname(self, tbl):
+        return "__st_%s" % tbl
+
+    def __ts2score(self, ts):
+        ''' timestamp trim to timestamp of day '''
+        dt = datetime.datetime.fromtimestamp(int(ts))
+        y, m, d, hh, mm, ss = dt.timetuple()[0:6]
+        dt = datetime.datetime(y, m, d, 0, 0, 0)
+        score = dt.strftime("%s")
+        return score
+
+    def _put_second_index(self, tbl, score, key):
+        tbl = self.__convert_second_tblname(tbl)
+        self.r.rpush(score, key)
+        self.r.zadd(tbl, score, score)
+
+    def _del_second_index(self, tbl, score, key):
+        tbl = self.__convert_second_tblname(tbl)
+        self.r.zrem(tbl, score)
+        self.r.lrem(score, key, num=0)
+
+    def _range_second_index(self, tbl, score_begin, score_end):
+        tbl = self.__convert_second_tblname(tbl)
+        return self.r.zrangebyscore(tbl, score_begin, score_end)
+
+    def put_timeline(self, ts, key):
+        score = self.__ts2score(ts)
+        self._put_second_index('timeline', score, key)
+
+    def del_timeline(self, key):
+        score = self.__ts2score(key)
+        self._del_second_index('timeline', score, key)
+
+    def range_timeline(self, date_begin, date_end):
+        dt1 = datetime.datetime(int(date_begin[:4]), int(date_begin[4:6]), int(date_begin[6:]))
+        dt2 = datetime.datetime(int(date_end[:4]), int(date_end[4:6]), int(date_end[6:]))
+        score_begin = dt1.strftime("%s")
+        score_end = dt2.strftime("%s")
+        print(score_begin, score_end)
+        date_list = self._range_second_index('timeline', score_begin, score_end)
+        pics_list = []
+        for d in date_list:
+            tmplist = self.r.lrange(d, '00', '99')
+            pics_list = pics_list + tmplist
+        return pics_list
+
+
     def append_id(self, id, path):
         ''' [id0, id1, id...] '''
         self.r.rpush("pic_ids", id)
