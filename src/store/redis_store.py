@@ -75,8 +75,13 @@ class RedisStore:
     def replace_meta(self, id, field, val):
         pass
 
+    def get_meta_field(self, id, field):
+        field_val = self.r.hget(id, field)
+        return field_val
+
     def get_meta(self, id):
-        return self.r.get(id)
+        return self.r.hgetall(id)
+
 
     def put_id2path(self, id, path):
         ''' id->pic_path '''

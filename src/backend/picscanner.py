@@ -6,19 +6,22 @@ import logging
 import inotify
 import inotify.adapters
 import sys
+import datetime
 import time
 from PIL import Image
 sys.path.append("..")
 from store.redis_store import RedisStore
+from thumbnail_helper import ThumbnailHelper
 
 
 _DEFAULT_LOG_FORMAT = '%(levelname)s-%(asctime)s-%(name)s-%(message)s'
 LOGGER = logging.getLogger(__name__)
 
 class PicScanner:
-    def __init__(self, dirpath):
+    def __init__(self, dirpath, thumbnail_dir="/home/erwin/data/thumbnails"):
         self.dirpath = dirpath
         self.store = RedisStore()
+        self.thumbnail_helper = ThumbnailHelper(basedir=thumbnail_dir)
         self._configure_logging()
         self.tmp_modified_files = []
         self.modified_files = []
@@ -112,36 +115,59 @@ class PicScanner:
                 st = os.stat(path)
 
                 im = Image.open(path)
-                exif = im._get_exif()
-                if exif is not None:
-                    if '306' in exif:
-                        ttime = str(exif['306'])    # photo token time
-                    if '34853' in exif:
-                        latitude_ref = exif['34853']['1']
-                        latitude = exif['34853']['2']
-                        longitude_ref = exif['34853']['3']
-                        longitude = exif['34853']['4']
+                try:
+                    exif = im._getexif()
+                except AttributeError:
+                    exif = None
+
                 md5 = hashlib.md5()
                 md5.update(filename)
+                '''
                 x, y = im.size
                 scale = int(math.ceil(x * 1.0 / 512.0))
                 x1, y1 = int(x / scale), int(y / scale)
                 im2 = im.resize((x1, y1))
                 im2.save(path_thumbnail)
+                '''
+
+                id = "%d-%s" % (int(st.st_ctime), md5.hexdigest())
+                thumbnailpath = self.thumbnail_helper.add_thumbnail(id, filename, im)
+                if thumbnailpath is None:
+                    print("Error! Can not create thumbnail.")
+                im.close()
+
+                ttime, latitude, longitude = st.st_ctime, None, None
+                if exif is not None:
+                    if 306 in exif:
+                        ttime = str(exif[306])  # photo token time
+                        dt = datetime.datetime.strptime(ttime, "%Y:%m:%d %H:%M:%S")
+                        ttime = dt.strftime("%s")
+                    if 34853 in exif:
+                        latitude_ref = exif[34853][1]
+                        latitude = exif[34853][2]
+                        longitude_ref = exif[34853][3]
+                        longitude = exif[34853][4]
+                    #print('exif', id, latitude, st.st_ctime, exif)
+
                 meta = {"ctime": st.st_ctime,
                         "atime": st.st_atime,
                         "mtime": st.st_mtime,
+                        "ttime": ttime,
                         "filename": filename,
                         "filepath": path,
+                        "thumbnail": thumbnailpath,
                         "size": im.size,
                         "desc": "",
+                        "latitude": latitude,
+                        "longitude": longitude,
                         }
-
-                id = "%d-%s" % (int(st.st_ctime), md5.hexdigest())
                 self.store.append_id(id, path)
                 self.store.set_meta(id, meta)
+                self.store.put_timeline(ttime, id)
+                if latitude is not None:
+                    LOGGER.info("#-- %s", id)
 
-                print(filename, int(st.st_ctime), im.size, md5.hexdigest())
+                #print(filename, int(st.st_ctime), im.size, md5.hexdigest())
             except IOError as e:
                 print("error: " + str(e))
 
@@ -153,5 +179,5 @@ if __name__ == '__main__':
     # start a process to scan
     dirpath = "/home/erwin/pictures"
     pic_scanner = PicScanner(dirpath)
-    #pic_scanner.run()
-    pic_scanner.watch_dir([dirpath])
+    pic_scanner.run()
+    #pic_scanner.watch_dir([dirpath])

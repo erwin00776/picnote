@@ -1,4 +1,4 @@
-$def with (name, pics)
+$def with (range_begin, range_end, pics)
 
 <html>
     <head>
@@ -23,38 +23,19 @@ $def with (name, pics)
 
     <body>
     <div id="container">
-        <div id="header">
-            <!--
-            <iframe src="header.html"></iframe>
-            -->
-        </div>
-        <form id="searchbox" action="">
-            <input id="search" type="text" placeholder="Type Here">
-            <input id="submit" type="submit" value="Search" onclick="display_alert()">
-        </form>
-
-        <div id="left">
-            <!-- nav bar -->
-            left bar
-        </div>
-
+$if range_begin:
+    $range_begin
+$if range_end:
+    $range_end
 
         <div id="page" style="columns:2">
-$if name:
-    welcome, $name.
 
-
-            <img src="static/thumbnails/404.jpg" style="-webkit-user-select: none; cursor: zoom-in;" width="300" height="200">
 $for picname in pics:
     <li>$picname</li>
-    <li>
     <img src="$picname" style="-webkit-user-select: none; cursor: zoom-in;" width="300" height="200">
-    </li>
+
         </div>
 
-        <div id="footer">
-            <link rel="footer" href="footer.html">
-        </div>
     </div>
     </body>
 </html>
