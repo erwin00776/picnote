@@ -21,6 +21,17 @@ html, body{
     margin: 0 auto;
     padding-bottom: 60px;
     float: right;
+    -webkit-column-count: 4;
+	column-count: 4;
+}
+
+.page {
+    width: 960px;
+    margin: 0 auto;
+    padding-bottom: 60px;
+    float: right;
+    -webkit-column-count: 3;
+	column-count: 3;
 }
 
 #footer{
@@ -32,7 +43,7 @@ html, body{
     clear: both;
 }
 
-#left{
+.left{
     width: 200px;
     float: left;
     margin-right: 20px;
@@ -58,7 +69,7 @@ html, body{
     border-radius: 35px;
     border-width: 1px;
     border-style: solid;
-    border-color: #c4d9df #a4c3ca $83afb7;
+    border-color: #c4d9df;
     width: 500px;
     height: 35px;
     padding: 10px;
@@ -73,7 +84,7 @@ html, body{
 
 #search{
     padding: 5px 9px;
-    height 35px;
+    height: 35px;
     width: 380px;
     border: 1px solid #a4c3ca;
     font: normal 13px 'trebuchet MS', arial, helvetica;

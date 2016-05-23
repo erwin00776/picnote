@@ -1,10 +1,10 @@
-$def with (range_begin, range_end, pics)
+$def with (range_begin, range_end, dates, pics)
 
 <html>
     <head>
         <title>PICNOTE</title>
         <style media="screen" type="text/css" resource="style.css"></style>
-        <link rel=stylesheet ref="stylesheet" href="static/style.css" type="text/css">
+        <link rel=stylesheet ref="stylesheet" href="../../static/style.css" type="text/css">
 
         <script type="text/javascript">
             function display_alert(){
@@ -22,20 +22,39 @@ $def with (range_begin, range_end, pics)
     </header>
 
     <body>
-    <div id="container">
+
+<div class="left">
+    Timeline:<br>
+$for (y, month_list) in dates.items():
+    <li>$y<br></li>
+    $for m in month_list:
+        &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;
+        <a href="$m[1]">$m[0]</a>
+        <br>
+
+</div>
+
+
 $if range_begin:
     $range_begin
 $if range_end:
     $range_end
 
-        <div id="page" style="columns:2">
+<div class="page">
 
 $for picname in pics:
+    <div>
     <li>$picname</li>
+    <!--
     <img src="$picname" style="-webkit-user-select: none; cursor: zoom-in;" width="300" height="200">
-
-        </div>
+    -->
+    <img src="$picname" style="-webkit-user-select: none; cursor: zoom-in;">
 
     </div>
+
+
+</div>
+
+
     </body>
 </html>

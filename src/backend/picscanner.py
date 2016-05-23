@@ -3,22 +3,26 @@ import hashlib
 import math
 import json
 import logging
+'''
 import inotify
 import inotify.adapters
+'''
 import sys
 import datetime
 import time
 from PIL import Image
 sys.path.append("..")
+from common.base import *
 from store.redis_store import RedisStore
 from thumbnail_helper import ThumbnailHelper
+
 
 
 _DEFAULT_LOG_FORMAT = '%(levelname)s-%(asctime)s-%(name)s-%(message)s'
 LOGGER = logging.getLogger(__name__)
 
 class PicScanner:
-    def __init__(self, dirpath, thumbnail_dir="/home/erwin/data/thumbnails"):
+    def __init__(self, dirpath, thumbnail_dir = SYSPATH_PREFIX + "/data/thumbnails"):
         self.dirpath = dirpath
         self.store = RedisStore()
         self.thumbnail_helper = ThumbnailHelper(basedir=thumbnail_dir)
@@ -43,7 +47,8 @@ class PicScanner:
          type 2: del
          type 3: rename
         '''
-        ino = inotify.adapters.Inotify()
+        # ino = inotify.adapters.Inotify()
+        ino = None
         try:
             for dirname in dirnames:
                 ino.add_watch(dirname)
@@ -177,7 +182,7 @@ class PicScanner:
 
 if __name__ == '__main__':
     # start a process to scan
-    dirpath = "/home/erwin/pictures"
+    dirpath = SYSPATH_PREFIX + "/pictures_tmp"
     pic_scanner = PicScanner(dirpath)
     pic_scanner.run()
     #pic_scanner.watch_dir([dirpath])

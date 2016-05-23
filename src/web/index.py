@@ -2,8 +2,11 @@ import web
 import os
 import sys
 sys.path.append("..")
+from common.base import *
 from store.redis_store import RedisStore
 from web.httpserver import StaticMiddleware
+
+DAYS_OF_MONTH = [31, 29, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31]
 
 urls = (
     '/', 'index',
@@ -34,12 +37,20 @@ class GetByTimeline:
             suffix = thumbnail[thumbnail.find('thumbnails'):]
             softpath = os.path.join('../../static', suffix)
             thumbnails.append(softpath)
-        return render.get_by_timeline(param1, param2, thumbnails)
+        dates = r.get_avail_dates()
+        dates_link = {}
+        for (y, mlist) in dates.items():
+            mlist_link = []
+            for m in mlist:
+                qrange = "%02d%02d01-%02d%02d%02d" % (y, m, y, m, DAYS_OF_MONTH[m-1])
+                mlist_link.append(["%02d" % m, qrange])
+            dates_link[y] = mlist_link
+        return render.get_by_timeline(param1, param2, dates_link, thumbnails)
 
 class index:
     def load_dir(self):
-        basedir = '/home/erwin/pictures'
-        basedir = '/home/erwin/PycharmProjects/picnote/src/web/static'
+        basedir = SYSPATH_PREFIX + '/pictures'
+        basedir = SYSPATH_PREFIX + '/PycharmProjects/picnote/src/web/static'
         print(basedir)
         pics = []
         for f in os.listdir(basedir):

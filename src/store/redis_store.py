@@ -104,6 +104,19 @@ class RedisStore:
         start_ts = start_dt.strftime("%s")
         end_ts = end_dt.strftime("%s")
 
+    def get_avail_dates(self):
+        date_list = self._range_second_index('timeline', 0, 9999999999)
+        dates = {}
+        for ts in date_list:
+            dt = datetime.datetime.fromtimestamp(int(ts))
+            y, m, d, hh, mm, ss = dt.timetuple()[0:6]
+            month_list = dates.get(y, [])
+            month_list.append(m)
+            dates[y] = month_list
+        for (y, month_list) in dates.items():
+            dates[y] = sorted(set(month_list))
+        return dates
+
 
 
 if __name__ == '__main__':
