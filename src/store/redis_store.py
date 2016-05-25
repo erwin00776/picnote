@@ -6,6 +6,8 @@ class RedisStore:
     def __init__(self):
         self.r = redis.Redis(port=6379)
 
+    def __init__(self, addr="127.0.0.1", port=6379, db=0):
+        self.r = redis.Redis(host=addr, port=port, db=db)
 
     def __convert_second_tblname(self, tbl):
         return "__st_%s" % tbl
@@ -36,9 +38,15 @@ class RedisStore:
         score = self.__ts2score(ts)
         self._put_second_index('timeline', score, key)
 
-    def del_timeline(self, key):
-        score = self.__ts2score(key)
-        self._del_second_index('timeline', score, key)
+    def del_timeline(self, id):
+        # score = self.__ts2score(key)
+        score = None
+        ttime = self.r.hget(id, 'ttime')
+        if ttime is not None:
+            score = ttime
+        else:
+            score = self.r.hget(id, 'ctime')
+        self._del_second_index('timeline', score, id)
 
     def range_timeline(self, date_begin, date_end):
         dt1 = datetime.datetime(int(date_begin[:4]), int(date_begin[4:6]), int(date_begin[6:]))
@@ -72,8 +80,16 @@ class RedisStore:
             except Exception as ex:
                 print('err', id, field, v, str(ex))
 
-    def replace_meta(self, id, field, val):
-        pass
+    def replace_meta(self, id, f, v):
+        try:
+            if isinstance(v, tuple):
+                v = json.dumps(v)
+            self.r.hset(id, f, v)
+        except Exception as e:
+            pass
+
+    def del_meta(self, id):
+        self.r.delete(id)
 
     def get_meta_field(self, id, field):
         field_val = self.r.hget(id, field)
@@ -81,7 +97,6 @@ class RedisStore:
 
     def get_meta(self, id):
         return self.r.hgetall(id)
-
 
     def put_id2path(self, id, path):
         ''' id->pic_path '''

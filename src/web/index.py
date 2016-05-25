@@ -34,6 +34,9 @@ class GetByTimeline:
         for pic_id in pics_list:
             thumbnail = r.get_meta_field(pic_id, 'thumbnail')
             # convert real path to soft-link of static.
+            if thumbnail is None:
+                # add 404.
+                continue
             suffix = thumbnail[thumbnail.find('thumbnails'):]
             softpath = os.path.join('../../static', suffix)
             thumbnails.append(softpath)

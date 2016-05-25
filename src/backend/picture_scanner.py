@@ -3,41 +3,30 @@ import hashlib
 import math
 import json
 import logging
+import datetime
 '''
 import inotify
 import inotify.adapters
 '''
 import sys
-import datetime
 import time
-from PIL import Image
 sys.path.append("..")
 from common.base import *
 from store.redis_store import RedisStore
-from thumbnail_helper import ThumbnailHelper
+from picture_watcher import PictureHandler
+from picture_watcher import PictureWatcher
 
 
-
-_DEFAULT_LOG_FORMAT = '%(levelname)s-%(asctime)s-%(name)s-%(message)s'
-LOGGER = logging.getLogger(__name__)
-
-class PicScanner:
-    def __init__(self, dirpath, thumbnail_dir = SYSPATH_PREFIX + "/data/thumbnails"):
+class PictureScanner:
+    def __init__(self, dirpath):
         self.dirpath = dirpath
         self.store = RedisStore()
-        self.thumbnail_helper = ThumbnailHelper(basedir=thumbnail_dir)
-        self._configure_logging()
+        self.handler = PictureHandler()
         self.tmp_modified_files = []
         self.modified_files = []
         self.MODIFIED_TIME_MAX = 15  # seconds
         self.MODIFIED_TIME_MIN = 0.5  # seconds
 
-    def _configure_logging(self):
-        LOGGER.setLevel(logging.DEBUG)
-        sh = logging.StreamHandler()
-        formatter = logging.Formatter(_DEFAULT_LOG_FORMAT)
-        sh.setFormatter(formatter)
-        LOGGER.addHandler(sh)
 
     def watch_dir(self, dirnames):
         '''
@@ -108,73 +97,38 @@ class PicScanner:
         for dirname in dirnames:
             self.scan_dir(dirname)
 
+    def check_last_scan(self, dirpath):
+        if os.path.dirname(dirpath):
+            p = os.path.join(dirpath, LAST_SCAN_FILENAME)
+            if not os.path.exists(p):
+                return False
+            ts_dir = int(os.stat(p).st_mtime)
+            with open(p, 'r') as f:
+                ts_last = int(f.readline())
+                if ts_dir - ts_last > 60:
+                    return True
+                else:
+                    return False
+
+    def update_last_scan(self, dirpath):
+        if os.path.dirname(dirpath):
+            p = os.path.join(dirpath, LAST_SCAN_FILENAME)
+            with open(p, 'o') as f:
+                ts = int(os.stat(p).st_mtime)
+                f.writelines(ts)
+
     def scan_dir(self, dirname):
         ''' scan a directory '''
         files = os.listdir(dirname)
+        updated = self.check_last_scan(dirname)     # TODO return ts, identy file.
         for filename in files:
             if os.path.isdir(filename):
-               continue
-            try:
+                continue
+            if updated:
                 path = os.path.join(dirname, filename)
-                path_thumbnail = os.path.join(dirname, 'thumbnails', "thumbnail_" + filename)
-                st = os.stat(path)
-
-                im = Image.open(path)
-                try:
-                    exif = im._getexif()
-                except AttributeError:
-                    exif = None
-
-                md5 = hashlib.md5()
-                md5.update(filename)
-                '''
-                x, y = im.size
-                scale = int(math.ceil(x * 1.0 / 512.0))
-                x1, y1 = int(x / scale), int(y / scale)
-                im2 = im.resize((x1, y1))
-                im2.save(path_thumbnail)
-                '''
-
-                id = "%d-%s" % (int(st.st_ctime), md5.hexdigest())
-                thumbnailpath = self.thumbnail_helper.add_thumbnail(id, filename, im)
-                if thumbnailpath is None:
-                    print("Error! Can not create thumbnail.")
-                im.close()
-
-                ttime, latitude, longitude = st.st_ctime, None, None
-                if exif is not None:
-                    if 306 in exif:
-                        ttime = str(exif[306])  # photo token time
-                        dt = datetime.datetime.strptime(ttime, "%Y:%m:%d %H:%M:%S")
-                        ttime = dt.strftime("%s")
-                    if 34853 in exif:
-                        latitude_ref = exif[34853][1]
-                        latitude = exif[34853][2]
-                        longitude_ref = exif[34853][3]
-                        longitude = exif[34853][4]
-                    #print('exif', id, latitude, st.st_ctime, exif)
-
-                meta = {"ctime": st.st_ctime,
-                        "atime": st.st_atime,
-                        "mtime": st.st_mtime,
-                        "ttime": ttime,
-                        "filename": filename,
-                        "filepath": path,
-                        "thumbnail": thumbnailpath,
-                        "size": im.size,
-                        "desc": "",
-                        "latitude": latitude,
-                        "longitude": longitude,
-                        }
-                self.store.append_id(id, path)
-                self.store.set_meta(id, meta)
-                self.store.put_timeline(ttime, id)
-                if latitude is not None:
-                    LOGGER.info("#-- %s", id)
-
-                #print(filename, int(st.st_ctime), im.size, md5.hexdigest())
-            except IOError as e:
-                print("error: " + str(e))
+                self.handler.created(path)
+        if updated:
+            self.update_last_scan()
 
     def run(self):
         self.scan_dir(self.dirpath)
@@ -183,6 +137,11 @@ class PicScanner:
 if __name__ == '__main__':
     # start a process to scan
     dirpath = SYSPATH_PREFIX + "/pictures_tmp"
-    pic_scanner = PicScanner(dirpath)
+    pic_scanner = PictureScanner(dirpath)
     pic_scanner.run()
+
+    pic_watcher = PictureWatcher()
+    pic_watcher.init(dirpath, pic_scanner.handler)
+    pic_watcher.start()
+    pic_watcher.join()
     #pic_scanner.watch_dir([dirpath])

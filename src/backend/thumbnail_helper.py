@@ -11,8 +11,7 @@ class ThumbnailHelper:
     def add_thumbnail(self, id, filepath, im):
         try:
             filename = os.path.basename(filepath)
-            ts, md5 = id.split('-')
-            prefix = md5[:self.PREFIX_LEN]
+            prefix = filename[:self.PREFIX_LEN]
             dirpath = os.path.join(self.basedir, prefix)
             if not os.path.exists(dirpath):
                 os.mkdir(dirpath)
@@ -30,8 +29,7 @@ class ThumbnailHelper:
 
     def del_thumbnail(self, filepath):
         filename = os.path.basename(filepath)
-        ts, md5 = filename.split('-')
-        prefix = md5[:self.PREFIX_LEN]
+        prefix = filename[:self.PREFIX_LEN]
         dirpath = os.path.join(self.basedir, prefix)
         if not os.path.exists(dirpath):
             return
