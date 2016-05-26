@@ -101,21 +101,27 @@ class PictureScanner:
         if os.path.dirname(dirpath):
             p = os.path.join(dirpath, LAST_SCAN_FILENAME)
             if not os.path.exists(p):
-                return False, 0
+                return True, 0
             ts_dir = int(os.stat(p).st_mtime)
-            with open(p, 'r') as f:
-                ts_last = int(f.readline())
-                if ts_dir - ts_last > 60:
-                    return True, ts_last
-                else:
-                    return False, 0
+            try:
+                with open(p, 'r') as f:
+                    ts_last = int(f.readline())
+                    if ts_dir - ts_last > 60:
+                        return True, ts_last
+                    else:
+                        return False, 0
+            except IOError as e:
+                return True, 0
+            except ValueError as e:
+                return True, 0
+
 
     def update_last_scan(self, dirpath):
         if os.path.dirname(dirpath):
             p = os.path.join(dirpath, LAST_SCAN_FILENAME)
-            with open(p, 'o') as f:
+            with open(p, 'w') as f:
                 ts = int(os.stat(p).st_mtime)
-                f.writelines(ts)
+                f.writeline(str(ts))
 
     def scan_dir(self, dirname):
         ''' scan a directory '''
@@ -127,9 +133,10 @@ class PictureScanner:
             path = os.path.join(dirname, filename)
             st = os.stat(path)
             if updated and int(st.st_mtime) > ts_last:
+                LOGGER.info("adding file %s" % path)
                 self.handler.created(path)
         if updated:
-            self.update_last_scan()
+            self.update_last_scan(dirname)
 
     def run(self):
         self.scan_dir(self.dirpath)
@@ -137,7 +144,7 @@ class PictureScanner:
 
 if __name__ == '__main__':
     # start a process to scan
-    dirpath = SYSPATH_PREFIX + "/pictures_tmp"
+    dirpath = SYSPATH_PREFIX + "/pictures"
     pic_scanner = PictureScanner(dirpath)
     pic_scanner.run()
 

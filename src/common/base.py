@@ -14,6 +14,7 @@ else:
     SYSPATH_PREFIX = '/home/erwin'
 
 THUMBNAILS_PATH = SYSPATH_PREFIX + "/data/thumbnails"
+LAST_SCAN_FILENAME = '.picnote.last_scan.timestamp'
 
 _DEFAULT_LOG_FORMAT = '%(levelname)s-%(asctime)s-%(name)s-%(message)s'
 LOGGER = logging.getLogger(__name__)
@@ -25,10 +26,14 @@ def _configure_logging():
     LOGGER.addHandler(sh)
 _configure_logging()
 
-LAST_SCAN_FILENAME = '.picnote.last_scan.timestamp'
+
+
 
 ############################ Generating Words ############################
-STOP_WORDS = []
+STOPWORD_PATH = SYSPATH_PREFIX + "/data/stopwords"
+NEURAL_TALK = "/home/erwin/git-repos/neuraltalk2"
+
+
 
 
 ############################ Redis Configure  ############################
