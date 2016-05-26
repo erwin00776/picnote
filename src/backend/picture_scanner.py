@@ -101,14 +101,14 @@ class PictureScanner:
         if os.path.dirname(dirpath):
             p = os.path.join(dirpath, LAST_SCAN_FILENAME)
             if not os.path.exists(p):
-                return False
+                return False, 0
             ts_dir = int(os.stat(p).st_mtime)
             with open(p, 'r') as f:
                 ts_last = int(f.readline())
                 if ts_dir - ts_last > 60:
-                    return True
+                    return True, ts_last
                 else:
-                    return False
+                    return False, 0
 
     def update_last_scan(self, dirpath):
         if os.path.dirname(dirpath):
@@ -120,12 +120,13 @@ class PictureScanner:
     def scan_dir(self, dirname):
         ''' scan a directory '''
         files = os.listdir(dirname)
-        updated = self.check_last_scan(dirname)     # TODO return ts, identy file.
+        updated, ts_last = self.check_last_scan(dirname)     # TODO return ts, identy file.
         for filename in files:
             if os.path.isdir(filename):
                 continue
-            if updated:
-                path = os.path.join(dirname, filename)
+            path = os.path.join(dirname, filename)
+            st = os.stat(path)
+            if updated and int(st.st_mtime) > ts_last:
                 self.handler.created(path)
         if updated:
             self.update_last_scan()
