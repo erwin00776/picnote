@@ -1,0 +1,55 @@
+$def with (dates, words, captions, pics)
+
+<html>
+    <head>
+        <title>PICNOTE</title>
+        <style media="screen" type="text/css" resource="style.css"></style>
+        <link rel=stylesheet ref="stylesheet" href="../../static/style.css" type="text/css">
+
+        <script type="text/javascript">
+            function display_alert(){
+                search = document.getElementById("search");
+                alert(search.value);
+            }
+        </script>
+    </head>
+
+    <header>
+
+        <!--
+        <link rel="header" href="header.html">
+        -->
+    </header>
+
+    <body>
+
+<div class="left">
+    Timeline:<br>
+$for (y, month_list) in dates.items():
+    <li>$y<br></li>
+    $for m in month_list:
+        &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;
+        <a href="$m[1]">$m[0]</a>
+        <br>
+
+</div>
+
+
+$for w in words:
+    $w
+
+<div class="page">
+
+$for i in range(len(pics)):
+    <div>
+        <li>$pics[i]</li>
+        <li>$captions[i]</li>
+        <li><img src="$pics[i]" style="-webkit-user-select: none; cursor: zoom-in;"></li>
+    </div>
+
+
+</div>
+
+
+    </body>
+</html>

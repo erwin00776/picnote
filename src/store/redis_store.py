@@ -1,6 +1,10 @@
 import json
 import redis
 import datetime
+import sys
+sys.path.append("..")
+from common.base import *
+
 
 class RedisStore:
     def __init__(self):
@@ -97,6 +101,19 @@ class RedisStore:
 
     def get_meta(self, id):
         return self.r.hgetall(id)
+
+    def add_query2id(self, q, id):
+        q = "#" + q
+        self.r.sadd(q, id)
+        LOGGER.info("query2id: %s %s" % (q, id))
+
+    def del_query2id(self, q, id):
+        q = "#" + q
+        self.r.srem(q, id)
+
+    def query_query2id(self, q):
+        q = '#' + q
+        return self.r.smembers(q)
 
     def put_id2path(self, id, path):
         ''' id->pic_path '''

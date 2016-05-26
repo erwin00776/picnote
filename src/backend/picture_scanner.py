@@ -119,9 +119,14 @@ class PictureScanner:
     def update_last_scan(self, dirpath):
         if os.path.dirname(dirpath):
             p = os.path.join(dirpath, LAST_SCAN_FILENAME)
-            with open(p, 'w') as f:
+            try:
+                fout = open(p, 'w')
                 ts = int(os.stat(p).st_mtime)
-                f.writeline(str(ts))
+                fout.write(str(ts)+"\n")
+                fout.close()
+            except IOError as e:
+                if fout is not None:
+                    fout.close()
 
     def scan_dir(self, dirname):
         ''' scan a directory '''

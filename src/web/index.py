@@ -4,6 +4,7 @@ import sys
 sys.path.append("..")
 from common.base import *
 from store.redis_store import RedisStore
+from backend.words_query import WordsQuery
 from web.httpserver import StaticMiddleware
 
 DAYS_OF_MONTH = [31, 29, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31]
@@ -11,6 +12,7 @@ DAYS_OF_MONTH = [31, 29, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31]
 urls = (
     '/', 'index',
     '/get_by_timeline/(.*)-(.*)', 'GetByTimeline',
+    '/get_by_kw/(.*)', 'GetByKw',
     '/(.*.jpg)', 'static_jpg',
     '/(.*.JPG)', 'static_jpg',
 )
@@ -23,6 +25,28 @@ class static_jpg:
             return f.read()
         except:
             return ''
+
+
+class GetByKw:
+    def GET(self, params):
+        r = RedisStore()
+        wq = WordsQuery()
+        render = web.template.render('templates/')
+        words = params.split('&')
+        pics = wq.query(words)
+        thumbnails = []
+        captions = []
+        for pic_id in pics:
+            thumbnail = r.get_meta_field(pic_id, 'thumbnail')
+            # convert real path to soft-link of static.
+            if thumbnail is None:
+                # add 404.
+                continue
+            suffix = thumbnail[thumbnail.find('thumbnails'):]
+            softpath = os.path.join('../../static', suffix)
+            thumbnails.append(softpath)
+            captions.append(r.get_meta_field(pic_id, 'desc'))
+        return render.get_by_kw({}, words, captions, thumbnails)
 
 
 class GetByTimeline:
@@ -49,6 +73,7 @@ class GetByTimeline:
                 mlist_link.append(["%02d" % m, qrange])
             dates_link[y] = mlist_link
         return render.get_by_timeline(param1, param2, dates_link, thumbnails)
+
 
 class index:
     def load_dir(self):
