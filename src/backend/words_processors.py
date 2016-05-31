@@ -71,42 +71,56 @@ class WordsProcessors:
         self.register(Stemmer())
         self.register(ExtendProcessor())
 
-        self.store = RedisStore()
-
     def register(self, processors):
         self.processors.append(processors)
 
-    def process(self, path):
+    def process(self, words):
+        querys = []
+        for word in words:
+            rlist = [word]
+            for p in self.processors:
+                rlist = p.process(rlist)
+                if rlist is None or len(rlist) == 0:
+                    break
+            querys = querys + rlist
+        return querys
+
+
+class PicturesNote:
+    def __init__(self):
+        self.wp = WordsProcessors()
+        self.store = RedisStore()
+
+    def gen_notes(self, path, nums=None):
+        if nums is None:
+            nums = 0
+            files = os.listdir(path)
+            for filename in files:
+                if os.path.isdir(filename) or filename[-3].lower() in PICTURE_SUFFIXS:
+                    continue
+                nums = nums + 1
         ng = NeuralGenerator()
-        items = ng.generator(path, 100)
+        items = ng.generator(path, nums)
         for item in items:
             filepath = item['file_name']
             caption = str(item['caption'])
             words = caption.split(' ')
-            querys = []
-            for word in words:
-                rlist = [word]
-                for p in self.processors:
-                    rlist = p.process(rlist)
-                    if rlist is None or len(rlist) == 0:
-                        break
-                querys = querys + rlist
+            querys = self.wp.process(words)
             print(querys)
             filename = os.path.basename(filepath)
             filename = filename.encode('utf-8')
             md5 = hashlib.md5()
             md5.update(filename)
             id = md5.hexdigest()
-            self.add2store(querys, id)
-            self.store.replace_meta(id, 'desc', caption)
+            self.add2store(querys, id, caption)
         return querys
 
-    def add2store(self, querys, id):
+    def add2store(self, querys, id, caption):
+        self.store.replace_meta(id, 'desc', caption)
         for q in querys:
             self.store.add_query2id(q, id)
 
 
-
 if __name__ == '__main__':
-    wp = WordsProcessors()
-    wp.process("/home/erwin/pictures")
+    pn = PicturesNote()
+    pn.gen_notes("/home/erwin/pictures")

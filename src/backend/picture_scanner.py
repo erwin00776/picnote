@@ -15,6 +15,7 @@ from common.base import *
 from store.redis_store import RedisStore
 from picture_watcher import PictureHandler
 from picture_watcher import PictureWatcher
+from words_processors import PicturesNote
 
 
 class PictureScanner:
@@ -22,11 +23,11 @@ class PictureScanner:
         self.dirpath = dirpath
         self.store = RedisStore()
         self.handler = PictureHandler()
+        self.pn = PicturesNote()
         self.tmp_modified_files = []
         self.modified_files = []
         self.MODIFIED_TIME_MAX = 15  # seconds
         self.MODIFIED_TIME_MIN = 0.5  # seconds
-
 
     def watch_dir(self, dirnames):
         '''
@@ -115,7 +116,6 @@ class PictureScanner:
             except ValueError as e:
                 return True, 0
 
-
     def update_last_scan(self, dirpath):
         if os.path.dirname(dirpath):
             p = os.path.join(dirpath, LAST_SCAN_FILENAME)
@@ -132,16 +132,20 @@ class PictureScanner:
         ''' scan a directory '''
         files = os.listdir(dirname)
         updated, ts_last = self.check_last_scan(dirname)     # TODO return ts, identy file.
+        nums = 0
         for filename in files:
-            if os.path.isdir(filename):
+            if os.path.isdir(filename) or filename[-3].lower() in PICTURE_SUFFIXS:
                 continue
             path = os.path.join(dirname, filename)
             st = os.stat(path)
+            nums = nums + 1
             if updated and int(st.st_mtime) > ts_last:
                 LOGGER.info("adding file %s" % path)
                 self.handler.created(path)
         if updated:
             self.update_last_scan(dirname)
+
+            self.pn.gen_notes(dirname)
 
     def run(self):
         self.scan_dir(self.dirpath)

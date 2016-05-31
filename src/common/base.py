@@ -4,6 +4,7 @@ import sys
 import logging
 
 ############################ Common Configure ############################
+PICTURE_SUFFIXS = set(["jpg", "png"])
 CUR_SYSTEM = None
 SYSPATH_PREFIX = None
 if sys.platform == 'darwin':

@@ -6,11 +6,12 @@ import nltk
 sys.path.append("..")
 from common.base import *
 from store.redis_store import RedisStore
-
+from backend.words_processors import WordsProcessors
 
 class WordsQuery:
     def __init__(self):
         self.store = RedisStore()
+        self.processor = WordsProcessors()
 
     def query(self, word_list):
         """
@@ -20,8 +21,13 @@ class WordsQuery:
         :param word_list:
         :return:
         """
-        pics = set([])
-        for w in word_list:
+        pics = None
+        wlist = self.processor.process(word_list)
+        for w in wlist:
             id_list = self.store.query_query2id(w)
-            pics = pics.union(id_list)
+            print(id_list)
+            if pics is None:
+                pics = id_list
+            else:
+                pics = pics.intersection(id_list)
         return list(pics)

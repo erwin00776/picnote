@@ -1,6 +1,7 @@
 import web
 import os
 import sys
+import urllib
 sys.path.append("..")
 from common.base import *
 from store.redis_store import RedisStore
@@ -44,6 +45,7 @@ class GetByKw:
                 continue
             suffix = thumbnail[thumbnail.find('thumbnails'):]
             softpath = os.path.join('../../static', suffix)
+            softpath = urllib.quote(softpath)
             thumbnails.append(softpath)
             captions.append(r.get_meta_field(pic_id, 'desc'))
         return render.get_by_kw({}, words, captions, thumbnails)

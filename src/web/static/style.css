@@ -34,6 +34,40 @@ html, body{
 	column-count: 3;
 }
 
+p {
+    display: block;
+    -webkit-margin-before: 1em;
+    -webkit-margin-after: 1em;
+    -webkit-margin-start: 0px;
+    -webkit-margin-end: 0px;
+}
+
+.result p {
+      background: rgba(0, 0, 0, .5);
+      bottom: 0;
+      box-sizing: border-box;
+      left: 0;
+      margin: 0;
+      padding: 5px;
+      position: absolute;
+      text-shadow: 0 1px 1px #000;
+      width: 100%;
+}
+
+#results {
+    margin: 1.5vw auto;
+    width: 96vw;
+}
+
+.result {
+    background: no-repeat center/contain #141414;
+    color: #fff;
+    height: 18vw;
+    position: relative;
+    width: 32vw;
+    display: inline-block;
+}
+
 #footer{
     position: absolute;
     bottom: 0;

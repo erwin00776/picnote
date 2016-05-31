@@ -9,7 +9,6 @@ import datetime
 import hashlib
 from PIL import Image
 from watchdog.observers import Observer
-from watchdog.events import LoggingEventHandler
 from watchdog.events import FileSystemEventHandler
 
 sys.path.append("..")
@@ -118,13 +117,19 @@ class PictureHandler(FileSystemEventHandler):
         id2 = self._gid(dest)
 
         vals = self.store.get_meta(id1)
+        if vals is None or len(vals) < 1:
+            # TODO
+            pass
         self.store.set_meta(id2, vals)
         self.store.del_meta(id1)
         self.store.del_timeline(id1)
-        ts = vals['ttime']
+        ts = vals.get('ttime', None)
         if ts is None:
-            ts = vals['ctime']
-        self.store.put_timeline(ts, id2)
+            ts = vals.get('ctime')
+        try:
+            self.store.put_timeline(ts, id2)
+        except:
+            LOGGER.error("can not put timeline: " + str(vals))
         LOGGER.debug("renamed id: %s %s", src, dest)
 
     def deleted(self, src):
@@ -133,6 +138,7 @@ class PictureHandler(FileSystemEventHandler):
         :return:
         """
         id = self._gid(src)
+        self.thumbnail_helper.del_thumbnail(id, src)
         self.store.del_timeline(id)
         self.store.del_meta(id)
         LOGGER.debug("deleted id: " + id)

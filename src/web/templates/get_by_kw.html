@@ -38,15 +38,12 @@ $for (y, month_list) in dates.items():
 $for w in words:
     $w
 
-<div class="page">
+<div id="results">
 
 $for i in range(len(pics)):
-    <div>
-        <li>$pics[i]</li>
-        <li>$captions[i]</li>
-        <li><img src="$pics[i]" style="-webkit-user-select: none; cursor: zoom-in;"></li>
+    <div class="result" style="background-image: url($pics[i]);">
+        <p>$captions[i]</p>
     </div>
-
 
 </div>
 

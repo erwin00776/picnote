@@ -18,10 +18,13 @@ class RedisStore:
 
     def __ts2score(self, ts):
         ''' timestamp trim to timestamp of day '''
-        dt = datetime.datetime.fromtimestamp(int(ts))
-        y, m, d, hh, mm, ss = dt.timetuple()[0:6]
-        dt = datetime.datetime(y, m, d, 0, 0, 0)
-        score = dt.strftime("%s")
+        try:
+            dt = datetime.datetime.fromtimestamp(int(ts))
+            y, m, d, hh, mm, ss = dt.timetuple()[0:6]
+            dt = datetime.datetime(y, m, d, 0, 0, 0)
+            score = dt.strftime("%s")
+        except ValueError as e:
+            LOGGER.error("value error: " + ts)
         return score
 
     def _put_second_index(self, tbl, score, key):
