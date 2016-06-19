@@ -4,13 +4,16 @@ import json
 import pickle
 
 class SeqFile:
-    def __init__(self, path, sid):
-        self.sid = sid
-        self.backup_count = 3       # TODO
-        self.checkpoint_len = 64
+    def __init__(self, path, sid, replications=3):
+        if isinstance(sid, int):
+            self.sid = str(sid)
+        else:
+            self.sid = sid
+        self.replications = replications       # TODO
+        self.checkpoint_len = 16
         self.path = path
-        self.tmp_filename = os.path.join(self.path, 'picnote.sequences-%d.tmp' % self.sid)
-        self.seqs_filename = os.path.join(self.path, 'picnote.sequences-%d' % self.sid)
+        self.tmp_filename = os.path.join(self.path, 'picnote.sequences-%s.tmp' % self.sid)
+        self.seqs_filename = os.path.join(self.path, 'picnote.sequences-%s' % self.sid)
         self.tmp_seqs_file = None
         self.tmp_seqs = None
         self.seqs = None
@@ -18,10 +21,14 @@ class SeqFile:
         self.init_done = self.try_recover()
 
     def try_recover(self):
+        ret = True
         if not self.load():
+            ret = False
             raise Exception("recover.load error.")
         if not self.checkpoint():
+            ret = False
             raise Exception("recover.checkpoint error.")
+        return ret
 
     def load(self):
         if not os.path.exists(self.tmp_filename):
@@ -36,15 +43,22 @@ class SeqFile:
                 for line in self.tmp_seqs_file.readlines():
                     self.tmp_seqs.append(json.loads(line))
                 self.tmp_seqs_file.close()
-            if self.seqs is None:
-                self.seqs_file = open(self.seqs_filename, 'r')
-                self.seqs = pickle.load(self.seqs_file)
-                self.seqs_file.close()
-            assert ((self.seqs is not None) and (len(self.seqs) >= 0))
+
         except IOError as e:
             print(e.message)
             return False
 
+        try:
+            if self.seqs is None:
+                self.seqs_file = open(self.seqs_filename, 'r')
+                self.seqs = pickle.load(self.seqs_file)
+                self.seqs_file.close()
+        except EOFError as e:
+            if self.seqs_file is not None:
+                self.seqs_file.close()
+            self.seqs = []
+
+        assert (self.seqs is not None)
         try:
             self.tmp_seqs_file = open(self.tmp_filename, 'w')
             self.seqs_file = open(self.seqs_filename, 'w')
@@ -60,10 +74,16 @@ class SeqFile:
                 return True
             for item in self.tmp_seqs:
                 self.seqs.append(item)
+            self.tmp_seqs_file.seek(0)
+            self.tmp_seqs_file.truncate()
+            self.seqs_file.seek(0)
+            self.seqs_file.truncate()
             pickle.dump(self.seqs, self.seqs_file)
             self.tmp_seqs = []
             # remove the tmp seqs file.
+            print("checkpoint done: %d %d" % (len(self.tmp_seqs), len(self.seqs)))
         except IOError as e:
+            print("checkpoint " + e.message)
             return False
         return True
 
@@ -88,11 +108,16 @@ class SeqFile:
         ''' merge old items in seqs '''
         new_seqs = []
         for item in self.seqs:
-            if item[''] < self.backup_count:
+            if item['replications'] < self.replications:
                 new_seqs.append(item)
         self.seqs = None
         self.seqs = new_seqs
+        self.checkpoint()
 
+    def close(self):
+        self.merge()
+        self.tmp_seqs_file.close()
+        self.seqs_file.close()
 
 if __name__ == "__main__":
     sf = SeqFile("/home/erwin/tmp", 1)
@@ -102,4 +127,4 @@ if __name__ == "__main__":
         r = i / 10 + 1
         item = {'type': 'add', 'filepath': '/home/erwin/...', 'replications': r}
         sf.record(item)
-    sf.merge()
+    sf.close()
