@@ -1,7 +1,7 @@
 from base_point import BasePoint
 import sys
 sys.path.append("..")
-from dfs_client.fs_scanner import FSScanner
+from fs_scanner import FSScanner
 
 
 class SourcePoint(BasePoint):

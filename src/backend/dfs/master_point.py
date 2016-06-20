@@ -23,7 +23,7 @@ def get_ip_address(ifname):
     )[20:24])
 
 
-class FindingHander(BaseRequestHandler):
+class FindingHandler(BaseRequestHandler):                # answer the remote peers.
     def __init__(self, request, client_addr, server):
         BaseRequestHandler.__init__(self, request, client_addr, server)
 
@@ -60,7 +60,7 @@ class FindingSrv(SocketServer.TCPServer, threading.Thread):
                 return True, self.last_times[func_name]
             else:
                 return False, self.last_times[func_name]
-        return False, None
+        return True, None
 
     def __update_last_time(self, func_name):
         t = time.time()
@@ -91,7 +91,7 @@ class FindingSrv(SocketServer.TCPServer, threading.Thread):
             time.sleep(60)
 
     def scan_peers(self, ip_prefix, ip_range):
-        check, ts = self.__check_last_time('scan_peers', interval=60)
+        check, ts = self.__check_last_time('scan_peers', interval=3)
         if not check:
             return
 
@@ -167,7 +167,7 @@ class MasterPoint(BasePoint):
 
         self.local_ip = get_ip_address('eth0')
 
-        self.finding_svr = FindingSrv((self.local_ip, self.public_port), FindingHander, self.name)
+        self.finding_svr = FindingSrv((self.local_ip, self.public_port), FindingHandler, self.name)
         self.finding_svr.start()
         self.sync_svr = MasterSyncSrv((self.local_ip, self.sync_port), MasterSyncHandler, self)
         self.sync_svr.start()
@@ -181,7 +181,7 @@ class MasterPoint(BasePoint):
                 return True, self.last_times[func_name]
             else:
                 return False, self.last_times[func_name]
-        return False, None
+        return True, None
 
     def __update_last_time(self, func_name):
         t = time.time()
