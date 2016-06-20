@@ -30,7 +30,7 @@ def _unpickle_method(func_name, obj, cls):
 copy_reg.pickle(types.MethodType, _pickle_method, _unpickle_method)
 
 
-class FileClient:
+class TCPClient:
     def __init__(self, ip, port):
         self.sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         self.sock.connect((ip, port))
