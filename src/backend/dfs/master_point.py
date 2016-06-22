@@ -31,6 +31,7 @@ class FindingHandler(BaseRequestHandler):                # answer the remote pee
         # server add peer
         remote_name = self.request.recv(128)
         remote_name = remote_name.strip()
+        print("remote peer recv: %s" % remote_name)
         self.server.add_peer(remote_name, self.client_address)
         self.request.send(self.server.name)
 
@@ -39,16 +40,18 @@ class FindingHandler(BaseRequestHandler):                # answer the remote pee
 
 
 class FindingSrv(SocketServer.TCPServer, threading.Thread):
-    is_running = False
+    is_running = True
 
-    def __init__(self, srv_addr, HandleClass, name):
-        SocketServer.TCPServer.__init__(self, srv_addr, HandleClass)
+    def __init__(self, srv_addr, HandleClass, name, father):
         self.allow_reuse_address = True
-        threading.Thread.__init__(self)
+        SocketServer.TCPServer.__init__(self, srv_addr, HandleClass)
+        threading.Thread.__init__(self, name="FindingSrv")
         self.name = name
         self.peers = {}
         self.new_peers = {}
-        self.scan_thread = threading.Thread(target=self.auto_scan_peers)
+        self.last_times = {}
+        self.father = father
+        self.scan_thread = threading.Thread(target=self.auto_scan_peers, name="auto-scanner")
 
     def shutdown(self):
         self.is_running = False
@@ -87,8 +90,9 @@ class FindingSrv(SocketServer.TCPServer, threading.Thread):
 
     def auto_scan_peers(self):
         while self.is_running:
-            self.scan_peers('192.168.11.', (100, 199))
-            time.sleep(60)
+            print('scanning peers')
+            self.scan_peers('192.168.11.', (102, 104))
+            time.sleep(2)
 
     def scan_peers(self, ip_prefix, ip_range):
         check, ts = self.__check_last_time('scan_peers', interval=3)
@@ -98,12 +102,17 @@ class FindingSrv(SocketServer.TCPServer, threading.Thread):
         peers = {}
         new_peers = {}
         for i in range(ip_range[0], ip_range[1]):
-            ip = ip_prefix + i
+            ip = ip_prefix + str(i)
+            if self.father.local_ip == ip:
+                continue
+            print("scan peer trying: %s" % ip)
             sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
             try:
-                sock.connect((ip, self.public_port))
-            except:
+                sock.connect((ip, self.father.public_port))
+            except IOError as e:
+                print(e.message)
                 continue
+
             sock.send(self.name)
             peer_name = sock.recv(128)
             peer_name = peer_name.strip()
@@ -111,9 +120,30 @@ class FindingSrv(SocketServer.TCPServer, threading.Thread):
             if peer_name not in self.peers:
                 new_peers[peer_name] = ip
         print('all peers: ', peers)
+        print('new peers: ', new_peers)
         self.peers = peers
         self.new_peers = new_peers
         self.__update_last_time('scan_peers')
+
+
+class PeersFinderHandler(BaseRequestHandler):
+    def __init__(self, request, client, server):
+        BaseRequestHandler.__init__(self, request, client, server)
+
+    def handle(self):
+        pass
+
+
+class PeersFinderSrv(SocketServer.TCPServer, threading.Thread):
+    def __init__(self, srv_addr, HandleClass):
+        SocketServer.TCPServer.__init__(self, srv_addr, HandleClass)
+        threading.Thread.__init__(self, name="PeersFinderSrv")
+
+    def run(self):
+        try:
+            self.serve_forever()
+        except IOError as e:
+            print(e.message)
 
 
 class MasterSyncHandler(BaseRequestHandler):
@@ -121,12 +151,23 @@ class MasterSyncHandler(BaseRequestHandler):
         BaseRequestHandler.__init__(self, request, client_addr, server)
 
     def handle(self):
-        local_ts_bs = struct.pack(">I", self.server.father.local_last_ts)
+        """
+        process sync request from peer.
+        1) remote peer last update timestamp
+        2) body len
+        3) body
+        :return:
+        """
+        print("sync from %s" % str(self.client_address))    # get/send peer ts in local
+        local_ts = self.server.father.local_last_ts
+        local_ts_bs = struct.pack(">I", local_ts)
         self.request.send(local_ts_bs)
-        remote_ts_bs = self.request.recv(4)
-        remote_ts = struct.unpack(">I", remote_ts_bs)
-        if local_ts_bs == remote_ts_bs:
+
+        remote_ts_bs = self.request.recv(4)                 # get and compare remote ts
+        remote_ts = struct.unpack(">I", remote_ts_bs)[0]
+        if local_ts == remote_ts:
             return
+
         local_metas = self.server.father.local_metas
         body = json.dumps(local_metas)
         bodylen_bs = struct.pack(">I", len(body))
@@ -137,10 +178,11 @@ class MasterSyncHandler(BaseRequestHandler):
 class MasterSyncSrv(SocketServer.TCPServer, threading.Thread):
     def __init__(self, srv_addr, HandleClass, father):
         SocketServer.TCPServer.__init__(self, srv_addr, HandleClass)
-        threading.Thread.__init__(self)
+        threading.Thread.__init__(self, name="MasterSyncSrv")
         self.father = father
 
     def run(self):
+        print("MasterSyncSrv-%s started." % self.getName())
         try:
             self.serve_forever()
         except:
@@ -155,19 +197,18 @@ class MasterPoint(BasePoint):
 
     def __init__(self):
         BasePoint.__init__(self)
-        threading.Thread.__init__(self)
+        threading.Thread.__init__(self, name="MasterPoint")
         self.store_type = MachineType.PROCESS
         self.source_point = SourcePoint()       # local/ source point
         self.local_last_ts = 0                  # last local update timestamp
         self.store_point = None                 # store point
-        self.name = socket.gethostname()        # UUID
+        self.uid = socket.gethostname()        # UUID
         self.peers = {}
         self.metas = {}                         # all peers meta.
         self.local_metas = {}
 
         self.local_ip = get_ip_address('eth0')
-
-        self.finding_svr = FindingSrv((self.local_ip, self.public_port), FindingHandler, self.name)
+        self.finding_svr = FindingSrv((self.local_ip, self.public_port), FindingHandler, self.name, self)
         self.finding_svr.start()
         self.sync_svr = MasterSyncSrv((self.local_ip, self.sync_port), MasterSyncHandler, self)
         self.sync_svr.start()
@@ -202,13 +243,22 @@ class MasterPoint(BasePoint):
         print("\tdel: ", delfiles)
 
     def sync_one(self, peer, peer_ip):
+        """
+        sync with one peer.
+        :param peer: peer name
+        :param peer_ip: peer (ip, port)
+        :return:
+        """
+        # print("start sync with %s %s" % (peer, peer_ip))
         sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         try:
-            sock.connect(peer_ip, self.sync_port)
+            sock.connect((peer_ip, self.sync_port))
 
             # check last update timestamp
             ts_bs = sock.recv(4)
-            remote_ts = struct.unpack(">I", ts_bs)
+            if ts_bs is None or len(ts_bs) != 4:
+                print("error in sync ts", ts_bs)
+            remote_ts = struct.unpack(">I", ts_bs)[0]
             local_meta = self.metas.get(peer, None)
             local_ts = 0
             if local_meta is not None:
@@ -216,13 +266,15 @@ class MasterPoint(BasePoint):
             ts_bs = struct.pack(">I", local_ts)
             sock.send(ts_bs)
 
+            print("remote ts: %s, local ts: %s" % (remote_ts, local_ts))
+
             if local_ts == remote_ts:
                 # ignore this peer for no updates
                 return
 
             # start sync meta info
             bs = sock.recv(4)
-            body_len = struct.unpack(">I", bs)
+            body_len = struct.unpack(">I", bs)[0]
             body = sock.recv(body_len)
 
             remote_meta = json.loads(body)
@@ -239,12 +291,15 @@ class MasterPoint(BasePoint):
                 addfiles = remote_copy
             else:
                 addfiles = remote_meta
-            self.meta[peer] = remote_meta
+#            remote_meta['last_ts'] = remote_ts
+            self.metas[peer] = remote_meta
+            print("recv remote data: ", remote_meta)
 
             # handle differences
             self.handle_diff(peer_ip, addfiles, delfiles)
-        except:
-            pass
+        except IOError as e:
+            print("sync error: %s" % e.message)
+
 
     def sync_all(self, remotes):
         pass
@@ -253,8 +308,9 @@ class MasterPoint(BasePoint):
         try:
             while self.is_running:
                 self.scan_self_store()
-                self.local_metas, self.local_last_ts = self.source_point.get_files_meta()
-                self.metas[self.name] = self.local_metas
+                self.local_last_ts, self.local_metas = self.source_point.get_files_meta()
+                self.local_metas['last_ts'] = self.local_last_ts
+                self.metas[self.uid] = self.local_metas
 
                 all_peers, new_peers = self.finding_svr.get_connected_peers()
                 for (peer, ip) in new_peers.items():

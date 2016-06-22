@@ -3,6 +3,7 @@ import time
 import sys
 import threading
 
+
 class FSScanner(threading.Thread):
     auto_interval = True    # auto scan interval
 
@@ -63,23 +64,32 @@ class FSScanner(threading.Thread):
             add_status.update(cur_copy)
         # TODO pickle dump
         self.last_status = cur_status
-        print('del: ', del_status)
-        print('add: ', add_status)
+        print('local del: ', del_status)
+        print('local add: ', add_status)
+        print('local current status %d' % len(self.last_status))
         return del_status, add_status
 
     def shutdown(self):
         self.is_shutdown = True
 
     def run(self):
+        print("FS Scanner started: %s" % self.to_monitor)
         last_ts = int(time.time())
         while not self.is_shutdown:
-            cur_status, self.last_mtime = self.start_scan(self.to_monitor)
-            delfiles, addfiles = self.diff_status(cur_status)
+            cur_status, last_mtime = self.start_scan(self.to_monitor)
+            if last_mtime > self.last_mtime:
+                self.last_mtime = last_mtime
+                delfiles, addfiles = self.diff_status(cur_status)
+            else:
+                # print('no changes')
+                pass
+
 
             cur_ts = int(time.time())
             while (cur_ts - last_ts) < self.scan_interval:
                 cur_ts = int(time.time())
             last_ts = cur_ts
+            time.sleep(self.scan_interval)
 
 
 if __name__ == '__main__':
