@@ -126,24 +126,80 @@ class FindingSrv(SocketServer.TCPServer, threading.Thread):
         self.__update_last_time('scan_peers')
 
 
-class PeersFinderHandler(BaseRequestHandler):
-    def __init__(self, request, client, server):
-        BaseRequestHandler.__init__(self, request, client, server)
+class PeersFinderSrv(threading.Thread):
+    broadcasts_port = 12345
 
-    def handle(self):
-        pass
-
-
-class PeersFinderSrv(SocketServer.TCPServer, threading.Thread):
-    def __init__(self, srv_addr, HandleClass):
-        SocketServer.TCPServer.__init__(self, srv_addr, HandleClass)
+    def __init__(self, father):
         threading.Thread.__init__(self, name="PeersFinderSrv")
+        self.is_shutdown = False
+        self.heartbeat_thread = threading.Thread(target=self.heartbeat)
+        self.heartbeat_thread.setName("PeersFinder-Heartbeat")
+        self.new_peers = {}
+        self.peers = {}
+        self.father = father
+        self.sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        self.sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+
+    def heartbeat(self):
+        while not self.is_shutdown:
+            self.peer_login()
+            time.sleep(2)
+
+    def __broadcasts(self, msg):
+        sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        sock.setsockopt(socket.SOL_SOCKET, socket.SO_BROADCAST, 1)
+        sock.sendto(msg, ("255.255.255.255", self.broadcasts_port))
+
+    def peer_login(self):
+        self.__broadcasts("%s:%s:%d" % (self.father.uid, 'peer-login', self.father.local_last_ts))
+
+    def peer_logout(self):
+        self.__broadcasts("%s:%s:%d" % (self.father.uid, 'peer-logout', self.father.local_last_ts))
+
+    def peer_register(self, sender, ip):
+        print("register", sender, ip)
+        self.new_peers[sender] = ip
+        self.peers[sender] = ip
+
+    def peer_unregister(self, sender, ip):
+        print("unregister", sender, ip)
+        if sender in self.peers:
+            del self.peers[sender]
+        if sender in self.new_peers:
+            del self.new_peers[sender]
+        return
+
+    def get_peers(self):
+        new_peers = self.new_peers
+        self.new_peers = {}
+        return self.peers, new_peers
+
+    def shutdown(self):
+        self.is_shutdown = True
 
     def run(self):
         try:
-            self.serve_forever()
+            self.sock.bind(('', self.broadcasts_port))
         except IOError as e:
-            print(e.message)
+            print("error while bind %s" % e.message)
+        self.peer_login()
+        self.heartbeat_thread.start()
+        while not self.is_shutdown:
+            msg, peer = self.sock.recvfrom(1024)
+            if msg is None or len(msg) < 3:
+                print('empty msg from', peer)
+                return
+            sender, msgbody, last_ts = msg.split(':')
+            if sender == self.father.uid:
+                continue
+            if msgbody == 'peer-login':
+                print(msg)
+                self.peer_register(sender, peer[0])
+            elif msgbody == 'peer-logout':
+                print(msg)
+                self.peer_unregister(sender, peer[0])
+            else:
+                print("unknown msg: %s" % msg)
 
 
 class MasterSyncHandler(BaseRequestHandler):
@@ -208,8 +264,8 @@ class MasterPoint(BasePoint):
         self.local_metas = {}
 
         self.local_ip = get_ip_address('eth0')
-        self.finding_svr = FindingSrv((self.local_ip, self.public_port), FindingHandler, self.name, self)
-        self.finding_svr.start()
+        self.peer_svr = PeersFinderSrv(self)
+        self.peer_svr.start()
         self.sync_svr = MasterSyncSrv((self.local_ip, self.sync_port), MasterSyncHandler, self)
         self.sync_svr.start()
 
@@ -312,7 +368,7 @@ class MasterPoint(BasePoint):
                 self.local_metas['last_ts'] = self.local_last_ts
                 self.metas[self.uid] = self.local_metas
 
-                all_peers, new_peers = self.finding_svr.get_connected_peers()
+                all_peers, new_peers = self.peer_svr.get_peers()
                 for (peer, ip) in new_peers.items():
                     self.sync_one(peer, ip)
         except IOError as e:
