@@ -56,15 +56,15 @@ class PeersFinderSrv(threading.Thread):
         sock.sendto(msg, ("255.255.255.255", self.broadcasts_port))
 
     def peer_login(self):
-        self.__broadcasts("%s:%s:%d" % (self.father.uid, 'peer-login', self.father.local_last_ts))
+        self.__broadcasts("%s:%s:%f" % (self.father.uid, 'peer-login', self.father.local_last_ts))
 
     def peer_logout(self):
-        self.__broadcasts("%s:%s:%d" % (self.father.uid, 'peer-logout', self.father.local_last_ts))
+        self.__broadcasts("%s:%s:%f" % (self.father.uid, 'peer-logout', self.father.local_last_ts))
 
     def peer_register(self, sender, ip, last_ts):
         # print("register", sender, ip)
-        self.new_peers[sender] = (ip, int(last_ts))
-        self.peers[sender] = (ip, int(last_ts))
+        self.new_peers[sender] = (ip, float(last_ts))
+        self.peers[sender] = (ip, float(last_ts))
 
     def peer_unregister(self, sender):
         # print("unregister", sender)

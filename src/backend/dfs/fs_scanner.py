@@ -14,9 +14,10 @@ def get_tid():
 class FSScanner(threading.Thread):
     auto_interval = True    # auto scan interval
 
-    def __init__(self, to_monitor, scan_interval=10):
+    def __init__(self, to_monitor, scan_interval=10, scan_del_interval=10):
         self.to_monitor = to_monitor
         self.scan_interval = scan_interval
+        self.scan_del_interval = scan_del_interval
         self.last_status = None
         self.add_files = None
         self.del_files = None
@@ -99,13 +100,20 @@ class FSScanner(threading.Thread):
     def run(self):
         print("FS Scanner started: %s" % self.to_monitor)
         last_ts = int(time.time())
+        last_del_ts = int(time.time())
         while not self.is_shutdown:
+            cur_ts = int(time.time())
+            big_scan = (cur_ts - last_del_ts) > self.scan_del_interval
+
             cur_status, last_ctime = self.start_scan(self.to_monitor, default_store_level=3)
-            if last_ctime > self.last_ctime:
+            if last_ctime > self.last_ctime or big_scan:
                 self.last_ctime = last_ctime
                 self.del_files, self.add_files = self.diff_status(cur_status)
+                if len(self.del_files) > 0:
+                    self.last_ctime += 0.01
+                if big_scan:
+                    last_del_ts = cur_ts
             else:
-                # print('no changes')
                 pass
 
             cur_ts = int(time.time())
