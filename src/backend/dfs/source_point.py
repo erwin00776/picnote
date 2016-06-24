@@ -5,9 +5,9 @@ from fs_scanner import FSScanner
 
 
 class SourcePoint(BasePoint):
-    def __init__(self):
+    def __init__(self, roots):
         BasePoint.__init__(self)
-        self.fsscanner = FSScanner("/home/erwin/cbuild/CBLAS/include", scan_interval=15)
+        self.fsscanner = FSScanner(roots[0], scan_interval=15)
         # self.fsscanner = FSScanner("/home/pi/tmp", scan_interval=15)
         self.fsscanner.start()
 

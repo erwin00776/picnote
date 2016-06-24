@@ -8,9 +8,13 @@ class Enum(set):
 
 MachineType = Enum(['SOURCE', 'STORE', 'PROCESS'])
 
+StoreLevel = Enum(['One', 'Two', 'Three', 'Four'])
+
 
 class BasePoint(threading.Thread):
+
     store_type = MachineType.SOURCE
+    store_level = StoreLevel.Three
 
     def __init__(self):
         pass
