@@ -9,6 +9,7 @@ import errno
 import copy_reg
 import types
 from multiprocessing import Pool
+import json
 
 
 def _pickle_method(method):
@@ -16,6 +17,7 @@ def _pickle_method(method):
     obj = method.im_self
     cls = method.im_class
     return _unpickle_method, (func_name, obj, cls)
+
 
 def _unpickle_method(func_name, obj, cls):
     for cls in cls.mro():
@@ -31,6 +33,8 @@ copy_reg.pickle(types.MethodType, _pickle_method, _unpickle_method)
 
 
 class TCPClient:
+    SIZE = 4096
+
     def __init__(self, ip, port):
         self.sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         self.sock.connect((ip, port))
@@ -38,10 +42,7 @@ class TCPClient:
     def recv(self, size):
         bs = None
         try:
-            print("start get return")
             bs = self.sock.recv(size)
-            print("get return %s" % str(bs))
-            # bs = bs.strip()
         except IOError as e:
             print(e.message)
             bs = None
@@ -63,7 +64,56 @@ class TCPClient:
             self.sock.close()
 
 
+class SimpleFileClient(TCPClient):
+    def __init__(self, ip, port):
+        TCPClient.__init__(self, ip, port)
+
+    def push(self, local_path):
+        self.send('wrte')
+
+        st = os.stat(local_path)
+        fin = open(local_path, 'rb')
+        file_vals = {'src_path': local_path, 'size': st.st_size, 'id': "xx"}
+        header = json.dumps(file_vals)
+
+        header_len = struct.pack(">I", len(header))
+        self.send(header_len)
+        self.send(header)
+
+        buf = fin.read(self.SIZE)
+        n = len(buf)
+        while buf:
+            ok = self.send(buf)
+            if not ok:
+                pass
+            buf = fin.read(self.SIZE)
+            n += len(buf)
+        self.close()
+
+    def pull(self, remote_path, local_path):
+        self.send('send')
+
+        file_vals = {'src_path': remote_path}
+        header = json.dumps(file_vals)
+        header_len = struct.pack(">I", len(header))
+        self.send(header_len)
+        self.send(header)
+
+        fout = open(local_path, 'wb')
+        n = 0
+        buf = self.recv(self.SIZE)
+        while buf:
+            if buf is None or len(buf) <= 0:
+                break
+            fout.write(buf)
+            n += len(buf)
+            buf = self.recv(self.SIZE)
+        fout.close()
+
+
 class SimpleBaseHandler(threading.Thread):
+    SIZE = 4096
+
     def __init__(self, request, client_addr, server):
         self.request = request
         self.client_addr = client_addr
@@ -81,10 +131,64 @@ class SimpleBaseHandler(threading.Thread):
         self.handle()
 
 
-class DefaultHandler(SimpleBaseHandler):
+class ReadFileHandler(SimpleBaseHandler):
+    """
+    Client <- Server
+    """
     def handle(self):
         print("[%s] start handle from %s" % (threading.currentThread().getName(),
                                              str(self.client_addr)))
+        done = False
+        bs = self.request.recv(4)
+        bs = bs.strip()
+        header_len = struct.unpack(">I", bs)[0]
+
+        h = self.request.recv(header_len)
+        h = h.strip()
+
+        header = json.loads(h)
+        filename = header['src_path']
+        if not os.path.exists(filename):
+            self.request.close()
+            self.job_done = True
+            return
+
+        st = os.stat(filename)
+        size = header.get('size', st.st_size)
+        if size <= 0:
+            size = st.st_size
+
+        fin = open(filename, 'rb')
+        n = 0
+        while n < size or not done:
+            try:
+                data = fin.read(self.SIZE)
+                if not data:
+                    done = True
+                    break
+                self.request.send(data)
+                n += len(data)
+            except:
+                done = True
+                self.request.shutdown()
+                self.request.close()
+                fin.close()
+        if n != size:
+            print("recv error.")
+        fin.close()
+        self.request.close()
+        self.job_done = True
+
+
+class WriteFileHandler(SimpleBaseHandler):
+    """
+    Client -> Server
+    """
+    def handle(self):
+        print("[%s] start handle from %s" % (threading.currentThread().getName(),
+                                             str(self.client_addr)))
+
+
         done = False
         bs = self.request.recv(4)
         bs = bs.strip()
@@ -94,7 +198,6 @@ class DefaultHandler(SimpleBaseHandler):
         h = self.request.recv(header_len)
         h = h.strip()
         print("recv %s" % h)
-        import json
         header = json.loads(h)
         filename = header['filename']
         size = header['size']
@@ -127,29 +230,40 @@ class DefaultHandler(SimpleBaseHandler):
         self.job_done = True
 
 
-class SimpleSrv():
+class SimpleFileSrv(threading.Thread):
     def __init__(self):
+        threading.Thread.__init__(self)
         self.sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         self.sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
         addr = ('localhost', 8088)
         self.sock.bind(addr)
         self.sock.listen(5)
-        #self.pool = Pool(10)
-        self.pool1 = set([])
+        self.pool = set([])
         print("serve at %s" % str(addr))
 
     def request_handle(self, request, client_addr):
         print("recv request from %s" % str(client_addr))
 
-        while len(self.pool1) > 5:
-            pool1 = set([])
-            for t in self.pool1:
+        while len(self.pool) > 5:
+            pool = set([])
+            for t in self.pool:
                 if not t.job_done:
-                    pool1.add(t)
-            self.pool1 = pool1
-        handler = DefaultHandler(request, client_addr, self)
-        self.pool1.add(handler)
-        handler.start()
+                    pool.add(t)
+            self.pool = pool
+
+        cmd = request.read(3)
+        cmd = cmd.strip()
+        handler = None
+        if cmd == 'read':
+            handler = ReadFileHandler(request, client_addr, self)
+        elif cmd == 'wrte':
+            handler = WriteFileHandler(request, client_addr, self)
+        else:
+            print("can not response cmd: %s" % cmd)
+
+        if handler is not None:
+            self.pool.add(handler)
+            handler.start()
 
     def request_close(self):
         pass
@@ -167,5 +281,6 @@ class SimpleSrv():
 
 
 if __name__ == "__main__":
-    srv = SimpleSrv()
-    srv.run()
+    srv = SimpleFileSrv()
+    # srv.run()
+    srv.start()

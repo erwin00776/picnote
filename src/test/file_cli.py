@@ -42,18 +42,7 @@ def send_one_file(filename):
         n += len(buf)
     print("send done %d" % st.st_size)
     cli.close()
-    '''
-    bs2 = cli.recv(4)
-    print(bs2)
-    if bs2 is None:
-        print("send failed.")
-        # TODO
-    recv_size = struct.unpack(">I", bs2)[0]
-    if recv_size == st.st_size:
-        print("send done %d" % st.st_size)
-    else:
-        print("send failed, %d %d" % (recv_size, st.st_size))
-    '''
+
 
 if __name__ == '__main__':
     thread_pool = []

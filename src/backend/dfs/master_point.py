@@ -1,6 +1,8 @@
 from base_point import BasePoint
 from base_point import MachineType
 from source_point import SourcePoint
+from file_service import SimpleFileSrv
+from store_point import StorePoint
 
 import ctypes
 import ConfigParser
@@ -157,7 +159,7 @@ class MasterPoint(BasePoint):
         source_path = self.config_parser.get('base', 'source_path')
         roots = source_path.split(':')
         self.source_point = SourcePoint(roots)       # local / source point
-        self.store_point = None  # store point
+        self.store_point = StorePoint('/home/erwin/store_tmp')  # store point
 
         self.peers = {}
         self.metas = {}                         # all peers meta.
@@ -168,6 +170,8 @@ class MasterPoint(BasePoint):
         self.peer_svr.start()
         self.sync_svr = MasterSyncSrv((self.local_ip, self.sync_port), MasterSyncHandler, self)
         self.sync_svr.start()
+        self.file_srv = SimpleFileSrv()
+        self.file_srv.start()
 
         self.__last_times = {}
 
@@ -196,7 +200,12 @@ class MasterPoint(BasePoint):
     def handle_diff(self, peer_ip, addfiles, delfiles):
         print("sync from %s" % peer_ip)
         print("\tadd: ", addfiles)
+        for (f, vals) in addfiles.items():
+            print(f, vals)
+            self.store_point.store('', peer_ip, f, vals)
         print("\tdel: ", delfiles)
+        for (f, vals) in delfiles.items():
+            self.store_point.remove(f)
 
     def sync_one(self, peer_name, peer_ip):
         """
@@ -254,7 +263,7 @@ class MasterPoint(BasePoint):
                 if self.local_last_ts is None:
                     self.local_last_ts = 0
                     self.local_metas = {}
-                self.local_metas['last_ts'] = self.local_last_ts
+                #self.local_metas['last_ts'] = self.local_last_ts
                 self.metas[self.uid] = self.local_metas
 
                 peers, new_peers = self.peer_svr.get_peers()    # {peer_name: (peer_ip, ts)}
