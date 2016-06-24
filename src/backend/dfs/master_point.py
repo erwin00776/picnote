@@ -229,6 +229,7 @@ class MasterPoint(BasePoint):
 
             add_files = {}
             del_files = {}
+            mv_files = {}           # TODO find by md5sum?
             if peer_name in self.metas:
                 remote_copy = remote_meta.copy()
                 for fn, vals in local_meta.items():
@@ -248,6 +249,7 @@ class MasterPoint(BasePoint):
             print("sync error: %s" % e.message)
 
     def check_peers(self, peers):
+        """ handle diff for every peers"""
         for (peer_name, peer_val) in peers.items():
             peer_ip, peer_ts = peer_val
             local_peer = self.peers.get(peer_name, (0, 0))
@@ -263,7 +265,7 @@ class MasterPoint(BasePoint):
                 if self.local_last_ts is None:
                     self.local_last_ts = 0
                     self.local_metas = {}
-                #self.local_metas['last_ts'] = self.local_last_ts
+                # self.local_metas['last_ts'] = self.local_last_ts
                 self.metas[self.uid] = self.local_metas
 
                 peers, new_peers = self.peer_svr.get_peers()    # {peer_name: (peer_ip, ts)}

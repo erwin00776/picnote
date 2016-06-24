@@ -36,14 +36,20 @@ class StorePoint(BasePoint):
     def get_name(self, root):
         pass
 
-    def store(self, peer_name, peer_ip, file_path, vals):
+    def store(self, peer_name, peer_ip, src, vals):
         rlevel = vals.get('store_level', 3)
         if self.store_level > rlevel:
-            return
+            return None
         file_client = SimpleFileClient(peer_ip, 8072)
-        base_name = os.path.basename(file_path)
-        dst_path = os.path.join(self.root, base_name)
-        file_client.pull(file_path, dst_path)
+        base_name = os.path.basename(src)
+        dst = os.path.join(self.root, base_name)
+        print("store %s %s" % (src, dst))
+        file_client.pull(src, dst)
+        return dst
 
-    def remote(self, file_path):
-        pass
+    def remove(self, src):
+        print("remove %s" % src)
+        dst = os.path.join(self.root, os.path.basename(src))
+        if not os.path.exists(dst):
+            return
+        os.remove(dst)
