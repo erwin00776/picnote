@@ -69,7 +69,7 @@ class SimpleFileClient(TCPClient):
         TCPClient.__init__(self, ip, port)
 
     def push(self, local_path):
-        self.send('wrte')
+        self.send('push')
 
         st = os.stat(local_path)
         fin = open(local_path, 'rb')
@@ -91,7 +91,7 @@ class SimpleFileClient(TCPClient):
         self.close()
 
     def pull(self, remote_path, local_path):
-        self.send('send')
+        self.send('pull')
 
         file_vals = {'src_path': remote_path}
         header = json.dumps(file_vals)
@@ -108,6 +108,7 @@ class SimpleFileClient(TCPClient):
             fout.write(buf)
             n += len(buf)
             buf = self.recv(self.SIZE)
+        print("recv: %s %d" % (remote_path, n))
         fout.close()
 
 
@@ -134,6 +135,8 @@ class SimpleBaseHandler(threading.Thread):
 class ReadFileHandler(SimpleBaseHandler):
     """
     Client <- Server
+       --> header_len | header{}
+       <-- content
     """
     def handle(self):
         print("[%s] start handle from %s" % (threading.currentThread().getName(),
@@ -187,8 +190,6 @@ class WriteFileHandler(SimpleBaseHandler):
     def handle(self):
         print("[%s] start handle from %s" % (threading.currentThread().getName(),
                                              str(self.client_addr)))
-
-
         done = False
         bs = self.request.recv(4)
         bs = bs.strip()
@@ -231,11 +232,11 @@ class WriteFileHandler(SimpleBaseHandler):
 
 
 class SimpleFileSrv(threading.Thread):
-    def __init__(self):
+    def __init__(self, ip='localhost', port=8073):
         threading.Thread.__init__(self)
         self.sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         self.sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-        addr = ('localhost', 8088)
+        addr = (ip, port)
         self.sock.bind(addr)
         self.sock.listen(5)
         self.pool = set([])
@@ -251,12 +252,12 @@ class SimpleFileSrv(threading.Thread):
                     pool.add(t)
             self.pool = pool
 
-        cmd = request.read(3)
+        cmd = request.recv(4)
         cmd = cmd.strip()
         handler = None
-        if cmd == 'read':
+        if cmd == 'pull':
             handler = ReadFileHandler(request, client_addr, self)
-        elif cmd == 'wrte':
+        elif cmd == 'push':
             handler = WriteFileHandler(request, client_addr, self)
         else:
             print("can not response cmd: %s" % cmd)

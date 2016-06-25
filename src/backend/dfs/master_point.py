@@ -170,7 +170,7 @@ class MasterPoint(BasePoint):
         self.peer_svr.start()
         self.sync_svr = MasterSyncSrv((self.local_ip, self.sync_port), MasterSyncHandler, self)
         self.sync_svr.start()
-        self.file_srv = SimpleFileSrv()
+        self.file_srv = SimpleFileSrv(self.local_ip, self.op_port)
         self.file_srv.start()
 
         self.__last_times = {}
@@ -247,6 +247,8 @@ class MasterPoint(BasePoint):
             self.handle_diff(peer_ip, add_files, del_files)
         except IOError as e:
             print("sync error: %s" % e.message)
+        except ValueError as e:
+            print("sync error: %s, body: %s" % (e.message, body))
 
     def check_peers(self, peers):
         """ handle diff for every peers"""

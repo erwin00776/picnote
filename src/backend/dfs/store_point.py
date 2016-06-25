@@ -40,7 +40,7 @@ class StorePoint(BasePoint):
         rlevel = vals.get('store_level', 3)
         if self.store_level > rlevel:
             return None
-        file_client = SimpleFileClient(peer_ip, 8072)
+        file_client = SimpleFileClient(peer_ip, 8073)
         base_name = os.path.basename(src)
         dst = os.path.join(self.root, base_name)
         print("store %s %s" % (src, dst))
