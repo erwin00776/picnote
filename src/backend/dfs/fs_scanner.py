@@ -33,6 +33,9 @@ class FSScanner(threading.Thread):
             config_path.read(config_path)
         return config_parser
 
+    def scan_once(self):
+        return self.start_scan(self.to_monitor, default_store_level=3)
+
     def start_scan(self, dirname, default_store_level):
         max_ctime = 0
         cur_status = {}
