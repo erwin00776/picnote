@@ -4,7 +4,7 @@ import sys
 import threading
 import ConfigParser
 import ctypes
-
+import hashlib
 
 def get_tid():
     tid = ctypes.CDLL('libc.so.6').syscall(186)
@@ -33,10 +33,10 @@ class FSScanner(threading.Thread):
             config_path.read(config_path)
         return config_parser
 
-    def scan_once(self):
-        return self.start_scan(self.to_monitor, default_store_level=3)
+    def scan_once(self, skip_hidden=True):
+        return self.start_scan(self.to_monitor, default_store_level=3, skip_hidden=skip_hidden)
 
-    def start_scan(self, dirname, default_store_level):
+    def start_scan(self, dirname, default_store_level, skip_hidden=True):
         max_ctime = 0
         cur_status = {}
         for (root, dirnames, filenames) in os.walk(dirname):
@@ -49,24 +49,30 @@ class FSScanner(threading.Thread):
                 st = os.stat(os.path.join(root, dn))
                 if st.st_ctime > max_ctime:
                     max_ctime = st.st_ctime
-                sub_status, sub_ctime = self.start_scan(os.path.join(root, dn), store_level)
+                sub_status, sub_ctime = self.start_scan(os.path.join(root, dn), store_level, skip_hidden=skip_hidden)
                 if sub_status is not None:
                     if sub_ctime > max_ctime:
                         max_ctime = sub_ctime
                     cur_status.update(sub_status)
-            for fn in filenames:
-                name = os.path.join(root, fn)
+            for file_name in filenames:
+                if skip_hidden and file_name[0] == ".":
+                    continue
+                h = hashlib.md5()
+                name = os.path.join(root, file_name)
                 st = os.stat(name)
+                h.update("%s:%d" % (file_name, st.st_ino))
+                md5id = h.hexdigest()
                 if st.st_ctime > max_ctime:
                     max_ctime = st.st_ctime
-                vals = {'mtime': st.st_ctime,
-                        'size': st.st_size,
-                        'inode': st.st_ino,
-                        'src_path': name,
-                        'dst_path': '',
-                        'store_level': store_level
-                        }
-                cur_status[name] = vals
+                val = {'mtime': st.st_ctime,
+                       'md5id': md5id,
+                       'size': st.st_size,
+                       'ino': st.st_ino,
+                       'src': name,
+                       'dst': '',
+                       'store_level': store_level
+                       }
+                cur_status[md5id] = val
         return cur_status, max_ctime
 
     def get_files_meta(self):
@@ -92,9 +98,6 @@ class FSScanner(threading.Thread):
             add_files.update(cur_copy)
         # TODO pickle dump
         self.last_status = cur_status
-        print('del ', del_files)
-        print('add ', add_files)
-
         return del_files, add_files
 
     def shutdown(self):

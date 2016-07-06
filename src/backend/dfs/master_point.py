@@ -100,6 +100,7 @@ class PeersFinderSrv(threading.Thread):
         return
 
     def get_peers(self):
+        """ {peer_name: (ip, last_ts)} """
         new_peers = self.new_peers
         self.new_peers = {}
         return self.peers, new_peers
@@ -107,37 +108,44 @@ class PeersFinderSrv(threading.Thread):
     def shutdown(self):
         self.is_shutdown = True
 
-    def fid_alloc(self, size):
+    def fid_alloc(self, size, wait_max=30):
         if size < 1:
             return True, 0
-        if len(self.peers) == 0:
-            self.cur_fid = 0
-            self.next_fid = self.cur_fid + 1
-            return True, self.cur_fid
+        if len(self.peers) == 0:        # wait for another peers.
+            return False, -1
         purpose_id = int(time.time() * 1000000 % 10000000000000)
         got = False
-        while not got:
-            lid, rid = self.cur_fid, self.cur_fid + size
+        lid, rid = -1, -1
+        wait_time = 0
+        while not got:                  # got enough fids?
+            lid, rid = self.next_fid, self.next_fid + size
+            self.fid_set[purpose_id] = FID(purpose_id, lid, rid)
             self.fid_alloc1(purpose_id, lid, rid)
-            wait_time = 0
-            while wait_time < 10:
+            cur_wait_time = 0
+            while cur_wait_time < 10:       # try times
                 fid = self.fid_set.get(purpose_id, None)
                 if fid is not None and len(fid.fids) == len(self.peers):
                     check = True
                     for remote_fid in fid.fids:
                         if remote_fid > lid:
                             check = False
+                            self.next_fid = remote_fid + 1
                             break
                     got = check
                     if got:
                         break
-                wait_time += 1
+                cur_wait_time += 1
                 time.sleep(1)
+            wait_time += 10
+            if wait_time > wait_max:
+                break
         if got:
             self.fid_alloc2(purpose_id, lid, rid)
             self.cur_fid = rid + 1
             self.next_fid = self.cur_fid + 1
+            del self.fid_set[purpose_id]
             return True, lid
+        del self.fid_set[purpose_id]
         return False, -1
 
     def run(self):
@@ -165,15 +173,17 @@ class PeersFinderSrv(threading.Thread):
             elif msgbody == 'peer-logout':
                 print(msg)
                 self.peer_unregister(sender)
-            elif msgbody == 'fid-alloc1':
+            elif msgbody == 'fid-alloc1':                   # try alloc
                 purpose_id, lid, rid = int(pieces[2]), int(pieces[3]), int(pieces[4])
                 self.fid_reply(purpose_id, self.cur_fid)
-            elif msgbody == 'fid-alloc2':
+            elif msgbody == 'fid-alloc2':                   # confirm fid
                 purpose_id, lid, rid = int(pieces[2]), int(pieces[3]), int(pieces[4])
                 self.next_fid = rid + 1
-            elif msgbody == 'fid-reply':
+            elif msgbody == 'fid-reply':                    # reply fid
                 purpose_id, fid = int(pieces[2]), int(pieces[3])
-                replys = self.fid_set.get(purpose_id, FID())
+                replys = self.fid_set.get(purpose_id, None)
+                if replys is None:
+                    print("fid-reply process: no replys [%d]" % purpose_id)
                 replys.add(fid)
                 self.fid_set[purpose_id] = replys
             else:
@@ -207,11 +217,25 @@ class MasterSyncSrv(SocketServer.TCPServer, threading.Thread):
         self.father = father
 
     def run(self):
-        print("## MasterSyncSrv-%s started." % get_tid())
         try:
             self.serve_forever()
         except:
             self.shutdown()
+
+
+def meta_diff(m1, m2):
+    """
+    :param m1: compare hash
+    :param m2: base meta hash
+    :return: added/deleted
+    """
+    added, deleted = {}, m2.copy()
+    for md5id, val in m1.items():
+        if md5id not in m2:
+            added[md5id] = val
+        else:
+            del deleted[md5id]
+    return added, deleted
 
 
 class MasterPoint(BasePoint):
@@ -238,14 +262,14 @@ class MasterPoint(BasePoint):
         self.source_points = SourcePoints(roots, self.redis_cli)       # local / source point
         self.source_points.start()
 
-        store_roots = stores_path.split(':')            #['/home/erwin/store_tmp']
-        self.store_points = StorePoints(store_roots)  # store point
+        store_roots = stores_path.split(':')
+        self.store_points = StorePoints(store_roots, self.redis_cli)    # store point
         self.store_points.start()
 
         self.peers = {}
-        self.metas = {}                         # all peers meta.
+        self.metas = {}                                 # all peers meta.
         self.local_metas = {}
-        self.local_last_ts = 0  # last local update timestamp
+        self.local_last_ts = 0                          # last local update timestamp
 
         self.peer_svr = PeersFinderSrv(self)
         self.peer_svr.start()
@@ -278,15 +302,19 @@ class MasterPoint(BasePoint):
             return
         self.__update_last_time('scan_self_store')
 
-    def handle_diff(self, peer_ip, addfiles, delfiles):
+    def handle_from_remote(self, peer_ip, add_files, del_files):
         print("sync from %s" % peer_ip)
-        print("\tadd: ", addfiles)
-        for (f, vals) in addfiles.items():
-            print(f, vals)
-            self.store_points.store('', peer_ip, f, vals)
-        print("\tdel: ", delfiles)
-        for (f, vals) in delfiles.items():
+        print("\tadd: ", add_files)
+        for (f, val) in add_files.items():
+            print(f, val)
+            self.store_points.store('', peer_ip, f, val)
+        print("\tdel: ", del_files)
+        for (f, val) in del_files.items():
             self.store_points.remove(f)
+
+    def handle_from_local(self, add_files):
+        for md5id, val in add_files.items():
+            self.store_points.store(None, None, val['src'], val)
 
     def sync_one(self, peer_name, peer_ip):
         """
@@ -307,6 +335,7 @@ class MasterPoint(BasePoint):
             body_len = struct.unpack(">I", bs)[0]
             body = sock.recv(body_len)
             remote_meta = json.loads(body)
+            print("remote_meta", remote_meta)
 
             add_files = {}
             del_files = {}
@@ -324,41 +353,53 @@ class MasterPoint(BasePoint):
             self.metas[peer_name] = remote_meta
             print("recv remote data: ", remote_meta)
 
-            # handle differences
-            self.handle_diff(peer_ip, add_files, del_files)
+            self.handle_from_remote(peer_ip, add_files, del_files)
         except IOError as e:
             print("sync error: %s" % e.message)
         except ValueError as e:
             print("sync error: %s, body: %s" % (e.message, body))
 
-    def check_peers(self, peers):
+    def check_peers_status(self, peers):
         """ handle diff for every peers"""
         for (peer_name, peer_val) in peers.items():
+            if peer_name == self.uid:
+                continue
             peer_ip, peer_ts = peer_val
-            local_peer = self.peers.get(peer_name, (0, 0))
-            if peer_ts > local_peer[1]:
+            prev_status = self.peers.get(peer_name, (0, 0))
+            if peer_ts > prev_status[1]:
                 self.sync_one(peer_name, peer_ip)
         self.peers = peers.copy()
 
+    def check_sources(self):
+        src_last_ts, source_metas, src_added, src_deleted = self.source_points.get_metas()
+        soe_last_ts, store_metas = self.store_points.get_metas()
+        add_files, del_files = meta_diff(source_metas, store_metas)
+        self.handle_from_local(add_files)
+        self.local_last_ts = src_last_ts if src_last_ts > soe_last_ts else soe_last_ts
+        return source_metas, store_metas
+
     def run(self):
-        print("## main: %d" % get_tid())
+        # process local sources when started
+        self.check_sources()
+
         try:
             while self.is_running:
-                self.local_last_ts, self.local_metas, add_files, del_files = self.source_points.get_metas()
-                ret, fid = self.peer_svr.fid_alloc(len(add_files))
-                while not ret:
-                    ret, fid = self.peer_svr.fid_alloc(len(add_files))
-                for k, v in add_files.items():
-                    v['fid'] = fid
-                    fid += 1
-                    self.local_metas[k] = v
-                if self.local_last_ts is None:
-                    self.local_last_ts = 0
-                    self.local_metas = {}
-                self.metas[self.uid] = self.local_metas
+                # self.local_last_ts, self.local_metas, add_files, del_files = self.source_points.get_metas()
+                """ rescan local sources """
+                source_metas, store_metas = self.check_sources()
 
+                """ merge source's metas and store's. """
+                # TODO peer meta: store_meta? source+store?
+                local_metas = source_metas
+                soe_last_ts, store_metas = self.store_points.get_metas()
+                local_metas.update(store_metas)
+                self.metas[self.uid] = store_metas
+                self.local_metas = store_metas
+
+                """ process remote peers changes """
                 peers, new_peers = self.peer_svr.get_peers()    # {peer_name: (peer_ip, ts)}
-                self.check_peers(peers)
+                # self.store_points.add_remote(peers, new_peers)
+                self.check_peers_status(peers)
 
                 time.sleep(2)
         except IOError as e:
@@ -370,6 +411,6 @@ if __name__ == '__main__':
     if os.path.exists('simple_dfs.cfg'):
         config_parser = ConfigParser.SafeConfigParser()
         config_parser.read('simple_dfs.cfg')
-    mpoint = MasterPoint(config_parser)
-    mpoint.start()
-    mpoint.join()
+    master_point = MasterPoint(config_parser)
+    master_point.start()
+    master_point.join()

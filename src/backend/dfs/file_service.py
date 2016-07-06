@@ -73,7 +73,7 @@ class SimpleFileClient(TCPClient):
 
         st = os.stat(local_path)
         fin = open(local_path, 'rb')
-        file_vals = {'src_path': local_path, 'size': st.st_size, 'id': "xx"}
+        file_vals = {'src': local_path, 'size': st.st_size, 'id': "xx"}
         header = json.dumps(file_vals)
 
         header_len = struct.pack(">I", len(header))
@@ -93,7 +93,7 @@ class SimpleFileClient(TCPClient):
     def pull(self, remote_path, local_path):
         self.send('pull')
 
-        file_vals = {'src_path': remote_path}
+        file_vals = {'src': remote_path}
         header = json.dumps(file_vals)
         header_len = struct.pack(">I", len(header))
         self.send(header_len)
@@ -150,7 +150,7 @@ class ReadFileHandler(SimpleBaseHandler):
         h = h.strip()
 
         header = json.loads(h)
-        filename = header['src_path']
+        filename = header['src']
         if not os.path.exists(filename):
             self.request.close()
             self.job_done = True
