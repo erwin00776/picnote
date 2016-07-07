@@ -10,6 +10,7 @@ import copy_reg
 import types
 from multiprocessing import Pool
 import json
+import stat
 
 
 def _pickle_method(method):
@@ -72,7 +73,7 @@ class SimpleFileClient(TCPClient):
         self.send('push')
 
         st = os.stat(local_path)
-        fin = open(local_path, 'rb')
+        fin = open(local_path, 'r')
         file_vals = {'src': local_path, 'size': st.st_size, 'id': "xx"}
         header = json.dumps(file_vals)
 
@@ -99,7 +100,7 @@ class SimpleFileClient(TCPClient):
         self.send(header_len)
         self.send(header)
 
-        fout = open(local_path, 'wb')
+        fout = open(local_path, 'w')
         n = 0
         buf = self.recv(self.SIZE)
         while buf:
@@ -109,7 +110,9 @@ class SimpleFileClient(TCPClient):
             n += len(buf)
             buf = self.recv(self.SIZE)
         print("recv: %s %d" % (remote_path, n))
+        fout.flush()
         fout.close()
+        os.chmod(local_path, stat.S_IRUSR + stat.S_IWUSR + stat.S_IRGRP + stat.S_IWGRP + stat.S_IROTH)
 
 
 class SimpleBaseHandler(threading.Thread):
@@ -161,7 +164,7 @@ class ReadFileHandler(SimpleBaseHandler):
         if size <= 0:
             size = st.st_size
 
-        fin = open(filename, 'rb')
+        fin = open(filename, 'r')
         n = 0
         while n < size or not done:
             try:
@@ -204,7 +207,7 @@ class WriteFileHandler(SimpleBaseHandler):
         size = header['size']
         dstname = os.path.basename(filename)
         store_path = "/home/erwin/tmp"
-        fout = open(os.path.join(store_path, dstname), 'wb')
+        fout = open(os.path.join(store_path, dstname), 'w')
         n = 0
         while n < size or not done:
             try:

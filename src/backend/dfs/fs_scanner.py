@@ -14,7 +14,7 @@ def get_tid():
 class FSScanner(threading.Thread):
     auto_interval = True    # auto scan interval
 
-    def __init__(self, to_monitor, scan_interval=10, scan_del_interval=10):
+    def __init__(self, to_monitor, scan_interval=10, scan_del_interval=10, need_thread=True):
         self.to_monitor = to_monitor
         self.scan_interval = scan_interval
         self.scan_del_interval = scan_del_interval
@@ -23,7 +23,8 @@ class FSScanner(threading.Thread):
         self.del_files = None
         self.is_shutdown = False
         self.last_ctime = 0
-        threading.Thread.__init__(self, name="FileSystemScanner-%d" % get_tid())
+        if need_thread:
+            threading.Thread.__init__(self)
 
     def read_config(self, root):
         config_path = os.path.join(root, '.simple.dfs.config')

@@ -303,12 +303,11 @@ class MasterPoint(BasePoint):
         self.__update_last_time('scan_self_store')
 
     def handle_from_remote(self, peer_ip, add_files, del_files):
-        print("sync from %s" % peer_ip)
-        print("\tadd: ", add_files)
+        # print("sync from %s" % peer_ip)
+        print("$$$ %s\n" % str(add_files))
         for (f, val) in add_files.items():
-            print(f, val)
+            # print("@@@ %s %s\n" % (f, str(val)))
             self.store_points.store('', peer_ip, f, val)
-        print("\tdel: ", del_files)
         for (f, val) in del_files.items():
             self.store_points.remove(f)
 
@@ -334,6 +333,9 @@ class MasterPoint(BasePoint):
             bs = sock.recv(4)
             body_len = struct.unpack(">I", bs)[0]
             body = sock.recv(body_len)
+            while len(body) < body_len:
+                body_extra = sock.recv(body_len - len(body))
+                body += body_extra
             remote_meta = json.loads(body)
             print("remote_meta", remote_meta)
 
@@ -351,11 +353,10 @@ class MasterPoint(BasePoint):
             else:
                 add_files = remote_meta
             self.metas[peer_name] = remote_meta
-            print("recv remote data: ", remote_meta)
 
             self.handle_from_remote(peer_ip, add_files, del_files)
-        except IOError as e:
-            print("sync error: %s" % e.message)
+        #except IOError as e:
+        #    print("sync error: %s" % e.message)
         except ValueError as e:
             print("sync error: %s, body: %s" % (e.message, body))
 

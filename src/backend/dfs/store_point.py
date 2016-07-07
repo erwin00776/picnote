@@ -69,11 +69,17 @@ class StorePoints(threading.Thread):
         last_ts, store_meta = store_point.self_check()
         self.last_changed_ts = self.last_changed_ts if self.last_changed_ts > last_ts else last_ts
         for r, p in self.store_points.items():                  # balance between all local store.
-            added, deleted = meta_diff(store_meta, p.get_metas())
+            if r == root:
+                continue
+            p_last_ts, p_meta = p.get_metas()
+            added, deleted = meta_diff(store_meta, p_meta)
             for md5id, val in added.items():
+                print("%%% %s" % str(val))
+                val['src'] = val['dst']
                 store_point.store(None, None, val['dst'], val)
             for md5id, val in deleted.items():
-                p.store(None, None, val['dst'], val)
+                val['src'] = val['dst']
+                # p.store(None, None, val['dst'], val)
         self.store_points[root] = store_point
 
     def remove_local(self, root):
@@ -114,6 +120,9 @@ class StorePoints(threading.Thread):
             point.store(peer_name, peer_ip, md5id, val)
         self.points_lock.release()
 
+    def remove(self, val):
+        pass
+
 
 class StorePoint(BasePoint):
     def __init__(self, root, store_type, redis_cli):
@@ -135,6 +144,7 @@ class StorePoint(BasePoint):
         self.store_meta = {}
         self.store_last_ts = 0
         self.redis_cli = redis_cli
+        print("store point %s started" % self.root)
 
     def get_metas(self):
         return self.store_last_ts, self.store_meta
@@ -173,12 +183,16 @@ class StorePoint(BasePoint):
                     if last_ts < val['mtime']:
                         last_ts = val['mtime']
                     meta[md5id] = val
+            self.seq_file.close()
+            self.seq_file = None
+        print("load_seq pickle done")
         return last_ts, meta
 
     def scan_local(self):                            # scan meta from disk
+        # TODO why core?
         """ return file list of current disk """
-        scanner = FSScanner(self.root)
-        cur_meta, cur_ts = scanner.scan_once()
+        scanner = FSScanner(to_monitor=self.root, need_thread=False)
+        cur_meta, cur_ts = scanner.scan_once(skip_hidden=True)
         scanner.shutdown()
         file_list = [val['src'] for _x, val in cur_meta.items()]
         return file_list
@@ -230,6 +244,11 @@ class StorePoint(BasePoint):
     def store(self, peer_name, peer_ip, md5id, val): # store one file
         if val['mtime'] > self.store_last_ts:
             self.store_last_ts = val['mtime']
+        src = val['src']
+        base_name = os.path.basename(src)
+        dst = os.path.join(self.root, base_name)
+        val['dst'] = dst
+
         if peer_ip is not None:
             self.__store(peer_name, peer_ip, md5id, val, fn=self.__store_from_remote)
         else:
@@ -243,22 +262,20 @@ class StorePoint(BasePoint):
                 if t.isAlive():
                     alives.append(t)
             self.thread_pool = alives
-        base_name = os.path.basename(md5id)
-        dst = os.path.join(self.root, base_name)
-        val['dst'] = dst
-
+        if val['src'] == val['dst']:
+            raise Exception("src and dst is same file, %s" % str(val))
         t = threading.Thread(target=fn, args=(peer_name, peer_ip, md5id, val))
         self.thread_pool.append(t)
         t.start()
 
     def __store_from_local(self, peer_name, peer_ip, md5id, val):
-        md5id = val['src']
+        src = val['src']
         dst = val['dst']
-        shutil.copyfile(md5id, dst)
+        shutil.copyfile(src, dst)
 
     def __store_from_remote(self, peer_name, peer_ip, md5id, val):
         try:
-            print("store from remote: ", peer_ip, md5id, val)
+
             rlevel = val.get('store_level', 3)
             if self.store_level > rlevel:
                 return None
@@ -266,8 +283,9 @@ class StorePoint(BasePoint):
             src = val['src']
             dst = val['dst']
             file_client.pull(src, dst)
-        except:
-            print("store from remote: error: ", peer_ip, src, dst)
+        except ValueError as e:
+            print("store from remote: error: ", peer_ip, src, dst, e.message)
+        print("store from remote: %s %s %s\n" % (peer_ip, md5id, str(val)))
         return dst
 
     def remove(self, src, val):
