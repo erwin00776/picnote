@@ -217,6 +217,9 @@ class MasterSyncSrv(SocketServer.TCPServer, threading.Thread):
         self.father = father
 
     def run(self):
+        while not self.father.inited:
+            time.sleep(1)
+
         try:
             self.serve_forever()
         except:
@@ -247,6 +250,7 @@ class MasterPoint(BasePoint):
     def __init__(self, config_parser):
         self.config_parser = config_parser
         self.redis_cli = redis.Redis()
+        self.inited = False
 
         BasePoint.__init__(self)
         threading.Thread.__init__(self, name="MasterPoint-%d" % get_tid())
@@ -277,7 +281,6 @@ class MasterPoint(BasePoint):
         self.sync_svr.start()
         self.file_srv = SimpleFileSrv(self.local_ip, self.op_port)
         self.file_srv.start()
-
         self.__last_times = {}
 
     def __check_last_time(self, func_name, interval=600):
@@ -354,18 +357,17 @@ class MasterPoint(BasePoint):
             self.metas[peer_name] = remote_meta
 
             self.handle_from_remote(peer_ip, add_files, del_files)
-        #except IOError as e:
-        #    LOG.debug("sync error: %s" % e.message)
         except ValueError as e:
             LOG.debug("sync error: %s, body: %s" % (e.message, body))
 
-    def check_peers_status(self, peers):
+    def check_peers(self, peers):
         """ handle diff for every peers"""
         for (peer_name, peer_val) in peers.items():
             if peer_name == self.uid:
                 continue
             peer_ip, peer_ts = peer_val
             prev_status = self.peers.get(peer_name, (0, 0))
+            LOG.debug("peer %s %d %d" % (peer_name, peer_ts, prev_status[1]))
             if peer_ts > prev_status[1]:
                 self.sync_one(peer_name, peer_ip)
         self.peers = peers.copy()
@@ -374,13 +376,54 @@ class MasterPoint(BasePoint):
         src_last_ts, source_metas, src_added, src_deleted = self.source_points.get_metas()
         soe_last_ts, store_metas = self.store_points.get_metas()
         add_files, del_files = meta_diff(source_metas, store_metas)
+        if len(add_files) > 0:
+            LOG.info("check sources found: %d" % len(add_files))
         self.handle_from_local(add_files)
         self.local_last_ts = src_last_ts if src_last_ts > soe_last_ts else soe_last_ts
         return source_metas, store_metas
 
+    def dump_infos(self):
+        meta_key = "$metas.%s" % self.uid
+        peer_key = "$peers.%s" % self.uid
+        for peer_name, val in self.metas.items():
+            s = json.dumps(val)
+            self.redis_cli.hset(meta_key, peer_name, s)
+        for peer_name, val in self.peers.items():
+            s = json.dumps(val)
+            self.redis_cli.hset(peer_key, peer_name, s)
+
+    def load_infos(self):
+        meta_key = "$metas.%s" % self.uid
+        peer_key = "$peers.%s" % self.uid
+        metas = self.redis_cli.hgetall(meta_key)
+        peers = self.redis_cli.hgetall(peer_key)
+        if not metas:
+            self.metas = {}
+        if not peers:
+            self.peers = {}
+        for peer_name, peer_val in metas.items():
+            val = json.loads(peer_val)
+            self.metas[peer_name] = val
+
     def run(self):
-        # process local sources when started
-        self.check_sources()
+        # wait for local resources loaded.
+        self.load_infos()
+
+        self.inited = False
+        while not self.source_points.wait4init():
+            LOG.info("waiting for source inited.")
+            time.sleep(1)
+        while not self.store_points.wait4init():
+            LOG.info("waiting for store inited.")
+            time.sleep(1)
+        self.inited = True
+
+        # process local sources when started.
+        source_metas, store_metas = self.check_sources()
+        LOG.info("#1 %s" % str(source_metas))
+        LOG.info("#2 %s" % str(store_metas))
+
+        self.is_running = True
 
         try:
             while self.is_running:
@@ -389,15 +432,19 @@ class MasterPoint(BasePoint):
 
                 """ merge source's metas and store's. """
                 # TODO peer meta: store_meta? source+store?
+                '''
                 local_metas = source_metas
                 soe_last_ts, store_metas = self.store_points.get_metas()
                 local_metas.update(store_metas)
+                '''
                 self.metas[self.uid] = store_metas
                 self.local_metas = store_metas
 
                 """ process remote peers changes """
                 peers, new_peers = self.peer_svr.get_peers()    # {peer_name: (peer_ip, ts)}
-                self.check_peers_status(peers)
+                self.check_peers(peers)
+                if new_peers and len(new_peers) > 0:
+                    self.dump_infos()
 
                 time.sleep(2)
         except IOError as e:

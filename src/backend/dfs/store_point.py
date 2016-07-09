@@ -36,13 +36,8 @@ class StorePoints(threading.Thread):
     def __init__(self, roots, redis_cli):
         self.is_shutdown = False
         self.redis_cli = redis_cli
-        self.roots = {}
-        self.cur_roots = {}
-        for root in roots:
-            if root[0] == '/':
-                self.roots[root] = MachineType.STORE
-            else:
-                self.roots[root] = MachineType.PROCESS
+        self.roots = roots
+        self.cur_roots = []
         threading.Thread.__init__(self, name="StorePoints")
         self.store_points = {}
         self.scan_interval = 30
@@ -63,7 +58,8 @@ class StorePoints(threading.Thread):
         return self.last_changed_ts, metas
 
     def add_local(self, root):
-        self.cur_roots[root] = MachineType.STORE
+        self.points_lock.acquire()
+        self.cur_roots.append(root)
         store_point = StorePoint(root, store_type=MachineType.STORE, redis_cli=self.redis_cli)
 
         last_ts, store_meta = store_point.self_check()
@@ -75,37 +71,51 @@ class StorePoints(threading.Thread):
             added, deleted = meta_diff(store_meta, p_meta)
             for md5id, val in added.items():
                 LOG.debug("--- %s" % str(val))
-
-                store_point.store(None, None, val['dst'], val)
+                try:
+                    p.store(None, None, val['dst'], val)
+                except Exception as e:
+                    LOG.info("%s -- %s, %s" % (root, r, e.message))
             for md5id, val in deleted.items():
                 #p.store(None, None, val['dst'], val)
                 pass
         self.store_points[root] = store_point
+        self.points_lock.release()
 
     def remove_local(self, root):
-        del self.cur_roots[root]
+        self.cur_roots.remove(root)
         del self.store_points[root]
 
     def refresh_local(self):
-        roots = {}
-        added, deleted = {}, {}
-        cur = set(self.cur_roots.keys())
-        for (root, root_type) in self.roots.items():
-            is_exists = True
-            if root_type == MachineType.STORE:
-                is_exists = os.path.exists(root)
+        roots, added, deleted = [], [], []
+        cur = set(self.cur_roots)
+        for root in self.roots:
+            is_exists = os.path.exists(root)
             if is_exists:
-                roots[root] = MachineType.STORE
+                roots.append(root)
             if is_exists and root not in cur:           # store added
-                added[root] = MachineType.STORE
+                added.append(root)
             elif not is_exists and root in cur:         # store removed
-                deleted[root] = MachineType.STORE
+                deleted.append(root)
 
-        for root, root_type in added.items():
+        for root in added:
             self.add_local(root)
-        for root, root_type in deleted.items():
+        for root in deleted:
             self.remove_local(root)
         self.cur_roots = roots
+
+    def wait4init(self):
+        if not self.roots and len(self.roots) == 0:
+            return True
+        cur_roots = []
+        for root in self.roots:
+            if os.path.exists(root):
+                cur_roots.append(root)
+        if len(cur_roots) > len(self.store_points):
+            return False
+        for root, point in self.store_points.items():
+            if not point or not point.first_inited():
+                return False
+        return True
 
     def run(self):
         self.refresh_local()
@@ -146,7 +156,11 @@ class StorePoint(BasePoint):
         self.store_meta = {}
         self.store_last_ts = 0
         self.redis_cli = redis_cli
-        LOG.debug("store point %s started" % self.root)
+        self.inited = False
+        LOG.info("** store point started %s" % self.root)
+
+    def first_inited(self):
+        return self.inited
 
     def get_metas(self):
         return self.store_last_ts, self.store_meta
@@ -158,10 +172,11 @@ class StorePoint(BasePoint):
         self.store_meta = {}
         self.store_last_ts = 0
         for md5id, val in meta.items():
-            if val['dst'] in file_list:
+            if val['src'] in file_list:
                 self.store_meta[md5id] = val
                 if val['mtime'] > self.store_last_ts:
                     self.store_last_ts = val['mtime']
+        self.inited = True
         return self.store_last_ts, self.store_meta
 
     def load_seq_pickle(self):
@@ -257,13 +272,13 @@ class StorePoint(BasePoint):
         src = val['src']
         base_name = os.path.basename(src)
         dst = os.path.join(self.root, base_name)
-        val2 = val.copy()
-        val2['dst'] = dst
+        val_copy = val.copy()
+        val_copy['dst'] = dst
         val['dst'] = dst
         if peer_ip is not None:
-            self.__store(peer_name, peer_ip, md5id, val2, fn=self.__store_from_remote)
+            self.__store(peer_name, peer_ip, md5id, val_copy, fn=self.__store_from_remote)
         else:
-            self.__store(peer_name, peer_ip, md5id, val2, fn=self.__store_from_local)
+            self.__store(peer_name, peer_ip, md5id, val_copy, fn=self.__store_from_local)
         self.update_seq('A', md5id, val)
 
     def __store(self, peer_name, peer_ip, md5id, val, fn):
@@ -274,6 +289,7 @@ class StorePoint(BasePoint):
                     alives.append(t)
             self.thread_pool = alives
         if val['src'] == val['dst'] and not peer_ip:
+            LOG.error("bad src, dst %s" % self.root)
             raise Exception("src and dst is same file, %s" % str(val))
         t = threading.Thread(target=fn, args=(peer_name, peer_ip, md5id, val))
         self.thread_pool.append(t)

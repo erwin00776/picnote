@@ -25,6 +25,7 @@ class SourcePoints(threading.Thread):
         self.source_points = {}
         self.add_files = {}
         self.del_files = {}
+        self.first_init = False
 
     def hashcode(self, s):
         m = hashlib.md5()
@@ -42,6 +43,19 @@ class SourcePoints(threading.Thread):
     def shutdown(self):
         self.is_shutdown = True
 
+    def wait4init(self):
+        """ init for first time. """
+        exists_root = []
+        for root in self.roots:
+            if os.path.exists(root):
+                exists_root.append(root)
+        for root in exists_root:
+            point = self.source_points.get(root, None)
+            if not point or not point.first_inited():
+                return False
+        self.merge_metas()
+        return True
+
     def run(self):
         self.is_shutdown = False
         while not self.is_shutdown:
@@ -52,7 +66,6 @@ class SourcePoints(threading.Thread):
 
     def merge_metas(self):
         metas = {}
-        #for uid, sp in zip(self.uids, self.source_points):
         for root, sp in self.source_points.items():
             last_ts, meta = sp.get_files_meta()
             prev_ts = self.uid2ts.get(root, 0)
@@ -131,6 +144,9 @@ class SourcePoint(BasePoint):
 
     def get_root(self):
         return self.root
+
+    def first_inited(self):
+        return self.fsscanner.first_inited()
 
     def get_files_meta(self):
         self.last_update_ts, self.file_metas = self.fsscanner.get_files_meta()
