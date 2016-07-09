@@ -1,3 +1,4 @@
+from dfs_log import LOG
 import threading
 import SocketServer
 import socket
@@ -45,7 +46,7 @@ class TCPClient:
         try:
             bs = self.sock.recv(size)
         except IOError as e:
-            print(e.message)
+            LOG.debug(e.message)
             bs = None
         finally:
             return bs
@@ -55,7 +56,7 @@ class TCPClient:
         try:
             self.sock.send(data)
         except IOError as e:
-            print(e.message)
+            LOG.debug(e.message)
             ok = False
         finally:
             return ok
@@ -109,7 +110,7 @@ class SimpleFileClient(TCPClient):
             fout.write(buf)
             n += len(buf)
             buf = self.recv(self.SIZE)
-        print("recv: %s %d" % (remote_path, n))
+        LOG.debug("recv: %s %d" % (remote_path, n))
         fout.flush()
         fout.close()
         os.chmod(local_path, stat.S_IRUSR + stat.S_IWUSR + stat.S_IRGRP + stat.S_IWGRP + stat.S_IROTH)
@@ -142,7 +143,7 @@ class ReadFileHandler(SimpleBaseHandler):
        <-- content
     """
     def handle(self):
-        print("[%s] start handle from %s" % (threading.currentThread().getName(),
+        LOG.debug("[%s] start handle from %s" % (threading.currentThread().getName(),
                                              str(self.client_addr)))
         done = False
         bs = self.request.recv(4)
@@ -180,7 +181,7 @@ class ReadFileHandler(SimpleBaseHandler):
                 self.request.close()
                 fin.close()
         if n != size:
-            print("recv error.")
+            LOG.debug("recv error.")
         fin.close()
         self.request.close()
         self.job_done = True
@@ -191,17 +192,17 @@ class WriteFileHandler(SimpleBaseHandler):
     Client -> Server
     """
     def handle(self):
-        print("[%s] start handle from %s" % (threading.currentThread().getName(),
+        LOG.debug("[%s] start handle from %s" % (threading.currentThread().getName(),
                                              str(self.client_addr)))
         done = False
         bs = self.request.recv(4)
         bs = bs.strip()
         header_len = struct.unpack(">I", bs)[0]
-        print("recv %d" % header_len)
+        LOG.debug("recv %d" % header_len)
 
         h = self.request.recv(header_len)
         h = h.strip()
-        print("recv %s" % h)
+        LOG.debug("recv %s" % h)
         header = json.loads(h)
         filename = header['filename']
         size = header['size']
@@ -223,8 +224,8 @@ class WriteFileHandler(SimpleBaseHandler):
                 self.request.close()
                 fout.close()
         if n != size:
-            print("recv error.")
-        print("recv %d, expect: %d" % (n, size))
+            LOG.debug("recv error.")
+        LOG.debug("recv %d, expect: %d" % (n, size))
         fout.close()
 
         n_bs = struct.pack(">I", n)
@@ -243,10 +244,10 @@ class SimpleFileSrv(threading.Thread):
         self.sock.bind(addr)
         self.sock.listen(5)
         self.pool = set([])
-        print("serve at %s" % str(addr))
+        LOG.debug("serve at %s" % str(addr))
 
     def request_handle(self, request, client_addr):
-        print("recv request from %s" % str(client_addr))
+        LOG.debug("recv request from %s" % str(client_addr))
 
         while len(self.pool) > 5:
             pool = set([])
@@ -263,7 +264,7 @@ class SimpleFileSrv(threading.Thread):
         elif cmd == 'push':
             handler = WriteFileHandler(request, client_addr, self)
         else:
-            print("can not response cmd: %s" % cmd)
+            LOG.debug("can not response cmd: %s" % cmd)
 
         if handler is not None:
             self.pool.add(handler)
@@ -281,7 +282,7 @@ class SimpleFileSrv(threading.Thread):
                 request, client_addr = self.sock.accept()
                 self.request_handle(request, client_addr)
             except IOError as e:
-                print("accept error", e.message)
+                LOG.debug("accept error %s" % e.message)
 
 
 if __name__ == "__main__":

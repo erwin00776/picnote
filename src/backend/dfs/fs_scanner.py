@@ -5,7 +5,7 @@ import threading
 import ConfigParser
 import ctypes
 import hashlib
-
+from dfs_log import LOG
 def get_tid():
     tid = ctypes.CDLL('libc.so.6').syscall(186)
     return tid
@@ -105,7 +105,7 @@ class FSScanner(threading.Thread):
         self.is_shutdown = True
 
     def run(self):
-        print("FS Scanner started: %s" % self.to_monitor)
+        LOG.debug("FS Scanner started: %s" % self.to_monitor)
         last_ts = int(time.time())
         last_del_ts = int(time.time())
         while not self.is_shutdown:

@@ -1,6 +1,7 @@
 from base_point import BasePoint
 from base_point import MachineType
 from fs_scanner import FSScanner
+from dfs_log import LOG
 
 import os
 import pickle
@@ -13,7 +14,6 @@ import time
 import json
 import struct
 sys.path.append("..")
-
 from file_service import SimpleFileClient
 
 
@@ -74,12 +74,12 @@ class StorePoints(threading.Thread):
             p_last_ts, p_meta = p.get_metas()
             added, deleted = meta_diff(store_meta, p_meta)
             for md5id, val in added.items():
-                print("%%% %s" % str(val))
-                val['src'] = val['dst']
+                LOG.debug("--- %s" % str(val))
+
                 store_point.store(None, None, val['dst'], val)
             for md5id, val in deleted.items():
-                val['src'] = val['dst']
-                # p.store(None, None, val['dst'], val)
+                #p.store(None, None, val['dst'], val)
+                pass
         self.store_points[root] = store_point
 
     def remove_local(self, root):
@@ -115,6 +115,8 @@ class StorePoints(threading.Thread):
             time.sleep(self.scan_interval)
 
     def store(self, peer_name, peer_ip, md5id, val):     # [TODO] lock store_points
+        if not val['src'] or len(val['src']) < 1:
+            raise ValueError("store error: %s" % str(val))
         self.points_lock.acquire()
         for point_name, point in self.store_points.items():
             point.store(peer_name, peer_ip, md5id, val)
@@ -144,7 +146,7 @@ class StorePoint(BasePoint):
         self.store_meta = {}
         self.store_last_ts = 0
         self.redis_cli = redis_cli
-        print("store point %s started" % self.root)
+        LOG.debug("store point %s started" % self.root)
 
     def get_metas(self):
         return self.store_last_ts, self.store_meta
@@ -185,7 +187,7 @@ class StorePoint(BasePoint):
                     meta[md5id] = val
             self.seq_file.close()
             self.seq_file = None
-        print("load_seq pickle done")
+        LOG.debug("load_seq pickle done")
         return last_ts, meta
 
     def scan_local(self):                            # scan meta from disk
@@ -197,9 +199,13 @@ class StorePoint(BasePoint):
         file_list = [val['src'] for _x, val in cur_meta.items()]
         return file_list
 
+    def default_configure(self):
+        self.store_level = 3
+
     def configure(self):
         config_path = os.path.join(self.root, '.simple.dfs.cfg')
         if not os.path.exists(config_path):
+            self.default_configure()
             return
         try:
             config_parser = ConfigParser.SafeConfigParser()
@@ -207,11 +213,13 @@ class StorePoint(BasePoint):
             self.store_level = config_parser.read('base', 'store_level')
         except:
             # ignore when read error.
+            self.default_configure()
             return
 
     def update_pickle(self):
         try:
-            if self.pickle_file is None:
+            if self.pickle_file is None or self.pickle_file.closed:
+                self.pickle_file = None
                 self.pickle_file = open(self.pickle_path, 'w')
             pickle.dump(self.store_meta, self.pickle_file)
             pickle.dump(self.store_last_ts, self.pickle_file)
@@ -223,13 +231,15 @@ class StorePoint(BasePoint):
 
             return True
         except IOError as e:
-            print("error while pickle %s" % e.message)
+            LOG.debug("error while pickle %s" % e.message)
             return False
 
     def update_seq(self, op, src, val):
         if self.seq_file is None:
             self.seq_file = open(self.seq_path, 'w')
 
+        val['src'] = val['dst']                     # reset val for local meta
+        val['dst'] = ''
         self.store_meta[val['md5id']] = val
 
         self.seq_file.write("%s$%s$%s\n" % (op, val['md5id'], json.dumps(val)))
@@ -247,12 +257,13 @@ class StorePoint(BasePoint):
         src = val['src']
         base_name = os.path.basename(src)
         dst = os.path.join(self.root, base_name)
+        val2 = val.copy()
+        val2['dst'] = dst
         val['dst'] = dst
-
         if peer_ip is not None:
-            self.__store(peer_name, peer_ip, md5id, val, fn=self.__store_from_remote)
+            self.__store(peer_name, peer_ip, md5id, val2, fn=self.__store_from_remote)
         else:
-            self.__store(peer_name, peer_ip, md5id, val, fn=self.__store_from_local)
+            self.__store(peer_name, peer_ip, md5id, val2, fn=self.__store_from_local)
         self.update_seq('A', md5id, val)
 
     def __store(self, peer_name, peer_ip, md5id, val, fn):
@@ -262,34 +273,36 @@ class StorePoint(BasePoint):
                 if t.isAlive():
                     alives.append(t)
             self.thread_pool = alives
-        if val['src'] == val['dst']:
+        if val['src'] == val['dst'] and not peer_ip:
             raise Exception("src and dst is same file, %s" % str(val))
         t = threading.Thread(target=fn, args=(peer_name, peer_ip, md5id, val))
         self.thread_pool.append(t)
         t.start()
 
     def __store_from_local(self, peer_name, peer_ip, md5id, val):
-        src = val['src']
-        dst = val['dst']
-        shutil.copyfile(src, dst)
+        assert (val['src'] and val['dst'])
+        try:
+            shutil.copyfile(val['src'], val['dst'])
+        except IOError as e:
+            LOG.error("copy local file error: %s, %s" % (str(val), e.message))
+        return True
 
     def __store_from_remote(self, peer_name, peer_ip, md5id, val):
+        assert (val['src'] and val['dst'])
         try:
-
             rlevel = val.get('store_level', 3)
             if self.store_level > rlevel:
-                return None
+                return False
             file_client = SimpleFileClient(peer_ip, 8073)
-            src = val['src']
-            dst = val['dst']
-            file_client.pull(src, dst)
+            file_client.pull(val['src'], val['dst'])
         except ValueError as e:
-            print("store from remote: error: ", peer_ip, src, dst, e.message)
-        print("store from remote: %s %s %s\n" % (peer_ip, md5id, str(val)))
-        return dst
+            LOG.error("store from remote: %s %s error: %s" % (peer_ip, str(val), e.message))
+        except IOError as e:
+            LOG.error("pull file error: %s" % str(val))
+        return True
 
     def remove(self, src, val):
-        print("removed %s" % src)
+        LOG.debug("removed %s" % src)
         md5id = val['md5id']
         dst = self.store_meta[md5id]['dst']
         del self.store_meta[md5id]

@@ -3,7 +3,7 @@ from base_point import MachineType
 from source_point import SourcePoints
 from file_service import SimpleFileSrv
 from store_point import StorePoints
-
+from dfs_log import LOG
 import redis
 import ctypes
 import ConfigParser
@@ -152,14 +152,14 @@ class PeersFinderSrv(threading.Thread):
         try:
             self.sock.bind(('', self.broadcasts_port))
         except IOError as e:
-            print("error while bind %s" % e.message)
+            LOG.info("error while bind %s" % e.message)
         self.peer_login()
         self.heartbeat_thread.start()
 
         while not self.is_shutdown:
             msg, peer = self.sock.recvfrom(1024)
             if msg is None or len(msg) < 3:
-                print('empty msg from', peer)
+                LOG.debug('empty msg from %s' % peer)
                 return
             pieces = msg.split(':')
             sender, msgbody = pieces[0], pieces[1]
@@ -167,11 +167,11 @@ class PeersFinderSrv(threading.Thread):
                 continue
 
             if msgbody == 'peer-login':
-                print(msg)
+                LOG.debug(msg)
                 last_ts = pieces[2]
                 self.peer_register(sender, peer[0], last_ts)
             elif msgbody == 'peer-logout':
-                print(msg)
+                LOG.debug(msg)
                 self.peer_unregister(sender)
             elif msgbody == 'fid-alloc1':                   # try alloc
                 purpose_id, lid, rid = int(pieces[2]), int(pieces[3]), int(pieces[4])
@@ -183,11 +183,11 @@ class PeersFinderSrv(threading.Thread):
                 purpose_id, fid = int(pieces[2]), int(pieces[3])
                 replys = self.fid_set.get(purpose_id, None)
                 if replys is None:
-                    print("fid-reply process: no replys [%d]" % purpose_id)
+                    LOG.debug("fid-reply process: no replys [%d]" % purpose_id)
                 replys.add(fid)
                 self.fid_set[purpose_id] = replys
             else:
-                print("unknown msg: %s" % msg)
+                LOG.debug("unknown msg: %s" % msg)
 
 
 class MasterSyncHandler(BaseRequestHandler):
@@ -303,10 +303,9 @@ class MasterPoint(BasePoint):
         self.__update_last_time('scan_self_store')
 
     def handle_from_remote(self, peer_ip, add_files, del_files):
-        # print("sync from %s" % peer_ip)
-        print("$$$ %s\n" % str(add_files))
+        # LOG.debug("sync from %s" % peer_ip)
+        LOG.debug("$$$ %s\n" % str(add_files))
         for (f, val) in add_files.items():
-            # print("@@@ %s %s\n" % (f, str(val)))
             self.store_points.store('', peer_ip, f, val)
         for (f, val) in del_files.items():
             self.store_points.remove(f)
@@ -322,7 +321,7 @@ class MasterPoint(BasePoint):
         :param peer_ip: peer (ip, port)
         :return:
         """
-        print("start sync with %s %s" % (peer_name, peer_ip))
+        LOG.info("start sync with %s %s" % (peer_name, peer_ip))
         sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         try:
             sock.connect((peer_ip, self.sync_port))
@@ -337,7 +336,7 @@ class MasterPoint(BasePoint):
                 body_extra = sock.recv(body_len - len(body))
                 body += body_extra
             remote_meta = json.loads(body)
-            print("remote_meta", remote_meta)
+            LOG.debug("remote_meta %s" % str(remote_meta))
 
             add_files = {}
             del_files = {}
@@ -356,9 +355,9 @@ class MasterPoint(BasePoint):
 
             self.handle_from_remote(peer_ip, add_files, del_files)
         #except IOError as e:
-        #    print("sync error: %s" % e.message)
+        #    LOG.debug("sync error: %s" % e.message)
         except ValueError as e:
-            print("sync error: %s, body: %s" % (e.message, body))
+            LOG.debug("sync error: %s, body: %s" % (e.message, body))
 
     def check_peers_status(self, peers):
         """ handle diff for every peers"""
@@ -385,7 +384,6 @@ class MasterPoint(BasePoint):
 
         try:
             while self.is_running:
-                # self.local_last_ts, self.local_metas, add_files, del_files = self.source_points.get_metas()
                 """ rescan local sources """
                 source_metas, store_metas = self.check_sources()
 
@@ -399,12 +397,11 @@ class MasterPoint(BasePoint):
 
                 """ process remote peers changes """
                 peers, new_peers = self.peer_svr.get_peers()    # {peer_name: (peer_ip, ts)}
-                # self.store_points.add_remote(peers, new_peers)
                 self.check_peers_status(peers)
 
                 time.sleep(2)
         except IOError as e:
-            print(e.message)
+            LOG.debug(e.message)
 
 
 if __name__ == '__main__':

@@ -2,6 +2,7 @@ from base_point import BasePoint
 import sys
 sys.path.append("..")
 from fs_scanner import FSScanner
+from dfs_log import LOG
 import json
 import time
 import hashlib
@@ -61,7 +62,7 @@ class SourcePoints(threading.Thread):
                 self.max_last_ts = last_ts
             if meta is not None:
                 metas.update(meta)
-            print(root, last_ts)
+            LOG.debug("merging %s %d" % (root, last_ts))
         add_files = {}
         del_files = self.metas.copy()
         for k, v in metas.items():
