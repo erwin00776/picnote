@@ -10,6 +10,7 @@ import time
 from base_point import BasePoint
 from base_point import MachineType
 from fs_scanner import FSScanner
+from filetype_processors import FileTypeHelper
 from src.backend.utils.dfs_log import LOG
 from src.backend.utils.superior_thread import SuperiorThread
 
@@ -143,6 +144,7 @@ class StorePoints(SuperiorThread):
 class StorePoint(BasePoint):
     def __init__(self, root, store_type, redis_cli):
         BasePoint.__init__(self)
+        self.file_type = FileTypeHelper(store_path=root, redis_cli=redis_cli)
         self.store_type = store_type
         self.store_level = 3
         if not os.path.exists(root):
@@ -303,10 +305,17 @@ class StorePoint(BasePoint):
         assert (val['src'] and val['dst'])
         try:
             try_cur = 0
+            src = val['src']
+            dst = val['dst']
+            md5id = val['md5id']
+            dst = self.file_type.process(md5id, dst)
+            if not dst:
+                # TODO
+                dst = val['dst']
             while try_cur < try_max:
-                shutil.copyfile(val['src'], val['dst'])
-                if os.path.exists(val['dst']):
-                    st = os.stat(val['dst'])
+                shutil.copyfile(src, dst)
+                if os.path.exists(dst):
+                    st = os.stat(dst)
                     if val['size'] == st.st_size:
                         return True
                 try_cur += 1
@@ -322,11 +331,16 @@ class StorePoint(BasePoint):
                 return False
             file_client = SimpleFileClient(peer_ip, 8073)
             try_cur = 0
+            src = val['src']
+            dst = val['dst']
+            md5id = val['md5id']
+            size = val['size']
+            dst = self.file_type.process(md5id, dst)
             while try_cur < try_max:
-                file_client.pull(val['src'], val['dst'], val['size'])
-                if os.path.exists(val['dst']):
-                    st = os.stat(val['dst'])
-                    if val['size'] == st.st_size:
+                file_client.pull(src, dst, size)
+                if os.path.exists(dst):
+                    st = os.stat(dst)
+                    if size == st.st_size:
                         return True
                 try_cur += 1
         except ValueError as e:
