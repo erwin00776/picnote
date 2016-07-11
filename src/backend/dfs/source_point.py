@@ -1,8 +1,11 @@
-from base_point import BasePoint
 import sys
+
+from base_point import BasePoint
+
 sys.path.append("..")
 from fs_scanner import FSScanner
-from dfs_log import LOG
+from src.backend.utils.dfs_log import LOG
+from src.backend.utils.superior_thread import SuperiorThread
 import json
 import time
 import hashlib
@@ -10,9 +13,10 @@ import os
 import threading
 
 
-class SourcePoints(threading.Thread):
+class SourcePoints(SuperiorThread):
     def __init__(self, roots, redis_cli):
-        threading.Thread.__init__(self, name="SourcePoints")
+        # threading.Thread.__init__(self, name="SourcePoints")
+        SuperiorThread.__init__(self, name='SourcePoints')
         self.roots = roots
         self.source_points = []
         self.max_last_ts = 0
@@ -26,6 +30,9 @@ class SourcePoints(threading.Thread):
         self.add_files = {}
         self.del_files = {}
         self.first_init = False
+
+    def crash(self):
+        pass
 
     def hashcode(self, s):
         m = hashlib.md5()
@@ -138,6 +145,9 @@ class SourcePoint(BasePoint):
         self.file_metas = {}
         self.fsscanner = FSScanner(root, scan_interval=15)
         self.fsscanner.start()
+
+    def crash(self):
+        pass
 
     def shutdown(self):
         self.fsscanner.shutdown()

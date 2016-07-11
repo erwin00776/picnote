@@ -1,18 +1,18 @@
-from base_point import BasePoint
-from base_point import MachineType
-from fs_scanner import FSScanner
-from dfs_log import LOG
-
+import ConfigParser
+import json
 import os
 import pickle
-import threading
 import shutil
-import ConfigParser
 import sys
 import threading
 import time
-import json
-import struct
+
+from base_point import BasePoint
+from base_point import MachineType
+from fs_scanner import FSScanner
+from src.backend.utils.dfs_log import LOG
+from src.backend.utils.superior_thread import SuperiorThread
+
 sys.path.append("..")
 from file_service import SimpleFileClient
 
@@ -32,13 +32,14 @@ def meta_diff(m1, m2):
     return added, deleted
 
 
-class StorePoints(threading.Thread):
+class StorePoints(SuperiorThread):
     def __init__(self, roots, redis_cli):
         self.is_shutdown = False
         self.redis_cli = redis_cli
         self.roots = roots
         self.cur_roots = []
-        threading.Thread.__init__(self, name="StorePoints")
+        # threading.Thread.__init__(self, name="StorePoints")
+        SuperiorThread.__init__(self, name="StorePoints")
         self.store_points = {}
         self.scan_interval = 30
         self.last_changed_ts = 0

@@ -1,21 +1,25 @@
+import ConfigParser
+import SocketServer
+import ctypes
+import fcntl
+import json
+import os
+import socket
+import struct
+import sys
+import threading
+import time
+from SocketServer import BaseRequestHandler
+
+import redis
+
 from base_point import BasePoint
 from base_point import MachineType
 from source_point import SourcePoints
 from file_service import SimpleFileSrv
 from store_point import StorePoints
-from dfs_log import LOG
-import redis
-import ctypes
-import ConfigParser
-import os
-import json
-import time
-import SocketServer
-from SocketServer import BaseRequestHandler
-import threading
-import socket
-import fcntl
-import struct
+from src.backend.utils.dfs_log import LOG
+from src.backend.utils.superior_thread import SuperiorThread
 
 
 def get_tid():
@@ -46,13 +50,15 @@ class FID:
         return len(self.fids)
 
 
-class PeersFinderSrv(threading.Thread):
+class PeersFinderSrv(SuperiorThread):
     broadcasts_port = 12345
 
     def __init__(self, father):
-        threading.Thread.__init__(self, name="PeersFinderSrv-%d" % get_tid())
+        # threading.Thread.__init__(self, name="PeersFinderSrv-%d" % get_tid())
+        SuperiorThread.__init__(self, daemon=True, name="PeersFinderSrv-%d" % get_tid())
         self.is_shutdown = False
-        self.heartbeat_thread = threading.Thread(target=self.heartbeat)
+        # self.heartbeat_thread = threading.Thread(target=self.heartbeat)
+        self.heartbeat_thread = SuperiorThread(target=self.heartbeat)
         self.heartbeat_thread.setName("PeersFinder-Heartbeat-%d" % get_tid())
         self.new_peers = {}
         self.peers = {}
@@ -209,12 +215,16 @@ class MasterSyncHandler(BaseRequestHandler):
         self.request.send(body)
 
 
-class MasterSyncSrv(SocketServer.TCPServer, threading.Thread):
+class MasterSyncSrv(SocketServer.TCPServer, SuperiorThread):
     def __init__(self, srv_addr, HandleClass, father):
         self.allow_reuse_address = True
         SocketServer.TCPServer.__init__(self, srv_addr, HandleClass)
-        threading.Thread.__init__(self, name="MasterSyncSrv-%d" % get_tid())
+        # threading.Thread.__init__(self, name="MasterSyncSrv-%d" % get_tid())
+        SuperiorThread.__init__(self, name="MasterSyncSrv-%d" % get_tid())
         self.father = father
+
+    def crash(self):
+        pass
 
     def run(self):
         while not self.father.inited:
@@ -282,6 +292,9 @@ class MasterPoint(BasePoint):
         self.file_srv = SimpleFileSrv(self.local_ip, self.op_port)
         self.file_srv.start()
         self.__last_times = {}
+
+    def crash(self):
+        pass
 
     def __check_last_time(self, func_name, interval=600):
         t = time.time()

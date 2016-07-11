@@ -1,17 +1,19 @@
-import os
-import time
-import sys
-import threading
 import ConfigParser
 import ctypes
 import hashlib
-from dfs_log import LOG
+import os
+import threading
+import time
+
+from src.backend.utils.dfs_log import LOG
+from src.backend.utils.superior_thread import SuperiorThread
+
 def get_tid():
     tid = ctypes.CDLL('libc.so.6').syscall(186)
     return tid
 
 
-class FSScanner(threading.Thread):
+class FSScanner(SuperiorThread):
     auto_interval = True    # auto scan interval
 
     def __init__(self, to_monitor, scan_interval=10, scan_del_interval=10, need_thread=True):
@@ -25,7 +27,11 @@ class FSScanner(threading.Thread):
         self.last_ctime = 0
         self.inited = False
         if need_thread:
-            threading.Thread.__init__(self)
+            # threading.Thread.__init__(self)
+            SuperiorThread.__init__(self)
+
+    def crash(self):
+        pass
 
     def read_config(self, root):
         config_path = os.path.join(root, '.simple.dfs.config')

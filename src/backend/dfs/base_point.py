@@ -1,4 +1,8 @@
 import threading
+import sys
+from src.backend.utils.superior_thread import SuperiorThread
+from src.backend.utils.dfs_log import LOG
+
 
 class Enum(set):
     def __getattr__(self, name):
@@ -7,17 +11,19 @@ class Enum(set):
         raise AttributeError
 
 MachineType = Enum(['SOURCE', 'STORE', 'PROCESS'])
-
 StoreLevel = Enum(['One', 'Two', 'Three', 'Four'])
 
 
-class BasePoint(threading.Thread):
-
+class BasePoint(SuperiorThread):
     store_type = MachineType.SOURCE
     store_level = StoreLevel.Three
 
     def __init__(self):
-        pass
+        SuperiorThread.__init__(self, daemon=True)
+
+    def crash(self):
+        #raise NotImplementedError('BasePoint crash() not implement yet.')
+        SuperiorThread.crash(self)
 
     def run(self):
         pass

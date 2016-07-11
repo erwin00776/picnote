@@ -1,5 +1,6 @@
 import threading
 import time
+from dfs_log import LOG
 
 
 class __SuperiorDaemon(threading.Thread):
@@ -12,6 +13,7 @@ class __SuperiorDaemon(threading.Thread):
         self.is_shutdown = True
 
     def run(self):
+        LOG.debug("superior monitor started.")
         self.is_shutdown = False
         while not self.is_shutdown:
             alives = []
@@ -31,30 +33,15 @@ _superior_daemon.start()
 
 
 class SuperiorThread(threading.Thread):
-    def __init__(self, daemon=False, group=None, target=None, name=None,
+    def __init__(self, daemon=True, group=None, target=None, name=None,
                  args=(), kwargs=None, verbose=None):
         threading.Thread.__init__(self, group, target, name, args, kwargs, verbose)
         self.daemon = daemon
-
-    def crash(self):
-        print("%s crashed." % self.name)
-
-    def run(self):
         if self.daemon:
             _superior_daemon.add(self)
+
+    def crash(self):
+        LOG.debug("%s crashed." % self.name)
+
+    def run(self):
         threading.Thread.run(self)
-
-
-def says():
-    i = 0
-    while True:
-        i += 1
-        if i > 15:
-            raise Exception("crash down!")
-        print(i)
-        time.sleep(1)
-
-if __name__ == "__main__":
-    t = SuperiorThread(daemon=True, target=says)
-    t.start()
-    t.join()
