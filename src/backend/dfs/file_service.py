@@ -88,7 +88,7 @@ class SimpleFileClient(TCPClient):
             n += len(buf)
         self.close()
 
-    def pull(self, remote_path, local_path):
+    def pull(self, remote_path, local_path, need_size=-1):
         self.send('pull')
 
         file_vals = {'src': remote_path}
@@ -100,16 +100,22 @@ class SimpleFileClient(TCPClient):
         fout = open(local_path, 'w')
         n = 0
         buf = self.recv(self.SIZE)
-        while buf:
+        while buf or n < need_size:
             if buf is None or len(buf) <= 0:
                 break
             fout.write(buf)
             n += len(buf)
             buf = self.recv(self.SIZE)
-        LOG.debug("recv: %s %d" % (remote_path, n))
-        fout.flush()
-        fout.close()
-        os.chmod(local_path, stat.S_IRUSR + stat.S_IWUSR + stat.S_IRGRP + stat.S_IWGRP + stat.S_IROTH)
+        if n == need_size:
+            LOG.debug("recv: %s %d" % (remote_path, n))
+            fout.flush()
+            fout.close()
+            os.chmod(local_path, stat.S_IRUSR + stat.S_IWUSR + stat.S_IRGRP + stat.S_IWGRP + stat.S_IROTH)
+            return True
+        else:
+            if fout:
+                fout.close()
+            return False
 
 
 class SimpleBaseHandler(threading.Thread):

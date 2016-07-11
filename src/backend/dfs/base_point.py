@@ -1,7 +1,4 @@
-import threading
-import sys
 from src.backend.utils.superior_thread import SuperiorThread
-from src.backend.utils.dfs_log import LOG
 
 
 class Enum(set):
@@ -22,7 +19,6 @@ class BasePoint(SuperiorThread):
         SuperiorThread.__init__(self, daemon=True)
 
     def crash(self):
-        #raise NotImplementedError('BasePoint crash() not implement yet.')
         SuperiorThread.crash(self)
 
     def run(self):

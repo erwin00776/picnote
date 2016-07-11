@@ -6,7 +6,6 @@ import json
 import os
 import socket
 import struct
-import sys
 import threading
 import time
 from SocketServer import BaseRequestHandler
@@ -236,7 +235,7 @@ class MasterSyncSrv(SocketServer.TCPServer, SuperiorThread):
             self.shutdown()
 
 
-def meta_diff(m1, m2):
+def meta_diff(m1, m2, detail_cmp=False):
     """
     :param m1: compare hash
     :param m2: base meta hash
@@ -245,6 +244,9 @@ def meta_diff(m1, m2):
     added, deleted = {}, m2.copy()
     for md5id, val in m1.items():
         if md5id not in m2:
+            added[md5id] = val
+        elif detail_cmp and (m1[md5id]['mtime'] != m2[md5id]['mtime'] or
+                             m1[md5id]['size'] != m2[md5id]['size']):
             added[md5id] = val
         else:
             del deleted[md5id]
@@ -375,6 +377,7 @@ class MasterPoint(BasePoint):
 
     def check_peers(self, peers):
         """ handle diff for every peers"""
+        # compare remote files.
         for (peer_name, peer_val) in peers.items():
             if peer_name == self.uid:
                 continue
@@ -386,9 +389,10 @@ class MasterPoint(BasePoint):
         self.peers = peers.copy()
 
     def check_sources(self):
+        # compare local files.
         src_last_ts, source_metas, src_added, src_deleted = self.source_points.get_metas()
         soe_last_ts, store_metas = self.store_points.get_metas()
-        add_files, del_files = meta_diff(source_metas, store_metas)
+        add_files, del_files = meta_diff(source_metas, store_metas, detail_cmp=True)
         if len(add_files) > 0:
             LOG.info("check sources found: %d" % len(add_files))
         self.handle_from_local(add_files)
@@ -445,11 +449,6 @@ class MasterPoint(BasePoint):
 
                 """ merge source's metas and store's. """
                 # TODO peer meta: store_meta? source+store?
-                '''
-                local_metas = source_metas
-                soe_last_ts, store_metas = self.store_points.get_metas()
-                local_metas.update(store_metas)
-                '''
                 self.metas[self.uid] = store_metas
                 self.local_metas = store_metas
 

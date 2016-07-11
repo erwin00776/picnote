@@ -2,7 +2,6 @@ import sys
 
 from base_point import BasePoint
 
-sys.path.append("..")
 from fs_scanner import FSScanner
 from src.backend.utils.dfs_log import LOG
 from src.backend.utils.superior_thread import SuperiorThread
@@ -10,12 +9,10 @@ import json
 import time
 import hashlib
 import os
-import threading
 
 
 class SourcePoints(SuperiorThread):
     def __init__(self, roots, redis_cli):
-        # threading.Thread.__init__(self, name="SourcePoints")
         SuperiorThread.__init__(self, name='SourcePoints')
         self.roots = roots
         self.source_points = []
@@ -147,6 +144,7 @@ class SourcePoint(BasePoint):
         self.fsscanner.start()
 
     def crash(self):
+        # this will be auto restart.
         pass
 
     def shutdown(self):

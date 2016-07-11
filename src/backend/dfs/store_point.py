@@ -69,24 +69,27 @@ class StorePoints(SuperiorThread):
             if r == root:
                 continue
             p_last_ts, p_meta = p.get_metas()
-            added, deleted = meta_diff(store_meta, p_meta)
-            for md5id, val in added.items():
-                LOG.debug("--- %s" % str(val))
+            lefts, rights = meta_diff(store_meta, p_meta)
+            for md5id, val in lefts.items():
                 try:
-                    p.store(None, None, val['dst'], val)
+                    p.store(None, None, val['md5id'], val)
                 except Exception as e:
                     LOG.info("%s -- %s, %s" % (root, r, e.message))
-            for md5id, val in deleted.items():
-                #p.store(None, None, val['dst'], val)
-                pass
+            for md5id, val in rights.items():
+                try:
+                    store_point.store(None, None, val['md5id'], val)
+                except Exception as e:
+                    LOG.info("%s -- %s, %s" % (r, root, e.message))
         self.store_points[root] = store_point
         self.points_lock.release()
+        LOG.info("StorePoint[%s] plugged." % root)
 
     def remove_local(self, root):
         self.cur_roots.remove(root)
         del self.store_points[root]
+        LOG.info("StorePoint[%s] unplugged." % root)
 
-    def refresh_local(self):
+    def refresh_roots(self):
         roots, added, deleted = [], [], []
         cur = set(self.cur_roots)
         for root in self.roots:
@@ -119,10 +122,10 @@ class StorePoints(SuperiorThread):
         return True
 
     def run(self):
-        self.refresh_local()
+        self.refresh_roots()
         self.run_first = True
         while not self.is_shutdown:
-            self.refresh_local()
+            self.refresh_roots()
             time.sleep(self.scan_interval)
 
     def store(self, peer_name, peer_ip, md5id, val):     # [TODO] lock store_points
@@ -296,27 +299,41 @@ class StorePoint(BasePoint):
         self.thread_pool.append(t)
         t.start()
 
-    def __store_from_local(self, peer_name, peer_ip, md5id, val):
+    def __store_from_local(self, peer_name, peer_ip, md5id, val, try_max=5):
         assert (val['src'] and val['dst'])
         try:
-            shutil.copyfile(val['src'], val['dst'])
+            try_cur = 0
+            while try_cur < try_max:
+                shutil.copyfile(val['src'], val['dst'])
+                if os.path.exists(val['dst']):
+                    st = os.stat(val['dst'])
+                    if val['size'] == st.st_size:
+                        return True
+                try_cur += 1
         except IOError as e:
             LOG.error("copy local file error: %s, %s" % (str(val), e.message))
-        return True
+        return False
 
-    def __store_from_remote(self, peer_name, peer_ip, md5id, val):
+    def __store_from_remote(self, peer_name, peer_ip, md5id, val, try_max=5):
         assert (val['src'] and val['dst'])
         try:
             rlevel = val.get('store_level', 3)
             if self.store_level > rlevel:
                 return False
             file_client = SimpleFileClient(peer_ip, 8073)
-            file_client.pull(val['src'], val['dst'])
+            try_cur = 0
+            while try_cur < try_max:
+                file_client.pull(val['src'], val['dst'], val['size'])
+                if os.path.exists(val['dst']):
+                    st = os.stat(val['dst'])
+                    if val['size'] == st.st_size:
+                        return True
+                try_cur += 1
         except ValueError as e:
             LOG.error("store from remote: %s %s error: %s" % (peer_ip, str(val), e.message))
         except IOError as e:
             LOG.error("pull file error: %s" % str(val))
-        return True
+        return False
 
     def remove(self, src, val):
         LOG.debug("removed %s" % src)
