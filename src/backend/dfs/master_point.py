@@ -330,7 +330,7 @@ class MasterPoint(BasePoint):
 
     def handle_from_local(self, add_files):
         for md5id, val in add_files.items():
-            self.store_points.store(None, None, val['src'], val)
+            self.store_points.store(None, None, val['md5id'], val)
 
     def sync_one(self, peer_name, peer_ip):
         """

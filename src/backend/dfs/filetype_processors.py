@@ -84,10 +84,15 @@ class MusicProcessor(BaseProcessor):
             return False, None
         # store by artists
         tag = eyed3.load(filename)
-        artist = tag.tag.artist
-        album = tag.tag.album
-        artist = artist.encode('utf-8')
-        album = album.encode('utf-8')
+        artist = None
+        album = None
+        try:
+            artist = tag.tag.artist
+            album = tag.tag.album
+            artist = artist.encode('utf-8')
+            album = album.encode('utf-8')
+        except AttributeError as e:
+            pass
         if artist and album:
             dst = os.path.join(self.store_path, str(artist), album, self.basename)
         elif artist and not album:

@@ -276,8 +276,12 @@ class StorePoint(BasePoint):
         if val['mtime'] > self.store_last_ts:
             self.store_last_ts = val['mtime']
         src = val['src']
+        if not os.path.exists(src):
+            LOG.error("store error: file not exists: %s " % src)
+            return
         base_name = os.path.basename(src)
-        dst = os.path.join(self.root, base_name)
+        md5id = val['md5id']
+        dst = self.file_type.process(md5id, src)
         val_copy = val.copy()
         val_copy['dst'] = dst
         val['dst'] = dst
@@ -307,8 +311,6 @@ class StorePoint(BasePoint):
             try_cur = 0
             src = val['src']
             dst = val['dst']
-            md5id = val['md5id']
-            dst = self.file_type.process(md5id, dst)
             if not dst:
                 # TODO
                 dst = val['dst']
@@ -333,9 +335,7 @@ class StorePoint(BasePoint):
             try_cur = 0
             src = val['src']
             dst = val['dst']
-            md5id = val['md5id']
             size = val['size']
-            dst = self.file_type.process(md5id, dst)
             while try_cur < try_max:
                 file_client.pull(src, dst, size)
                 if os.path.exists(dst):
