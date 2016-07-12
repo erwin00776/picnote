@@ -134,7 +134,8 @@ class StorePoints(SuperiorThread):
             raise ValueError("store error: %s" % str(val))
         self.points_lock.acquire()
         for point_name, point in self.store_points.items():
-            point.store(peer_name, peer_ip, md5id, val)
+            val_copy = val.copy()
+            point.store(peer_name, peer_ip, md5id, val_copy)
         self.points_lock.release()
 
     def remove(self, val):
@@ -276,10 +277,9 @@ class StorePoint(BasePoint):
         if val['mtime'] > self.store_last_ts:
             self.store_last_ts = val['mtime']
         src = val['src']
-        if not os.path.exists(src):
+        if not peer_ip and not os.path.exists(src):
             LOG.error("store error: file not exists: %s " % src)
             return
-        base_name = os.path.basename(src)
         md5id = val['md5id']
         dst = self.file_type.process(md5id, src)
         val_copy = val.copy()
@@ -298,6 +298,7 @@ class StorePoint(BasePoint):
                 if t.isAlive():
                     alives.append(t)
             self.thread_pool = alives
+            time.sleep(1)
         if val['src'] == val['dst'] and not peer_ip:
             LOG.error("bad src, dst %s" % self.root)
             raise Exception("src and dst is same file, %s" % str(val))
@@ -327,6 +328,7 @@ class StorePoint(BasePoint):
 
     def __store_from_remote(self, peer_name, peer_ip, md5id, val, try_max=5):
         assert (val['src'] and val['dst'])
+        n = 0
         try:
             rlevel = val.get('store_level', 3)
             if self.store_level > rlevel:
@@ -337,12 +339,11 @@ class StorePoint(BasePoint):
             dst = val['dst']
             size = val['size']
             while try_cur < try_max:
-                file_client.pull(src, dst, size)
-                if os.path.exists(dst):
-                    st = os.stat(dst)
-                    if size == st.st_size:
-                        return True
+                n = file_client.pull(src, dst, size)
+                if size == n:
+                    return True
                 try_cur += 1
+                time.sleep(1)
         except ValueError as e:
             LOG.error("store from remote: %s %s error: %s" % (peer_ip, str(val), e.message))
         except IOError as e:

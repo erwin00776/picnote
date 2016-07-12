@@ -16,6 +16,7 @@ from base_point import BasePoint
 from base_point import MachineType
 from source_point import SourcePoints
 from file_service import SimpleFileSrv
+from status_server import StatusServer
 from store_point import StorePoints
 from src.backend.utils.dfs_log import LOG
 from src.backend.utils.superior_thread import SuperiorThread
@@ -53,10 +54,9 @@ class PeersFinderSrv(SuperiorThread):
     broadcasts_port = 12345
 
     def __init__(self, father):
-        # threading.Thread.__init__(self, name="PeersFinderSrv-%d" % get_tid())
         SuperiorThread.__init__(self, daemon=True, name="PeersFinderSrv-%d" % get_tid())
         self.is_shutdown = False
-        # self.heartbeat_thread = threading.Thread(target=self.heartbeat)
+        self.heartbeat_interval = 15        # seconds
         self.heartbeat_thread = SuperiorThread(target=self.heartbeat)
         self.heartbeat_thread.setName("PeersFinder-Heartbeat-%d" % get_tid())
         self.new_peers = {}
@@ -71,7 +71,7 @@ class PeersFinderSrv(SuperiorThread):
     def heartbeat(self):
         while not self.is_shutdown:
             self.peer_login()
-            time.sleep(2)
+            time.sleep(self.heartbeat_interval)
 
     def __broadcasts(self, msg):
         sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
@@ -83,15 +83,6 @@ class PeersFinderSrv(SuperiorThread):
 
     def peer_logout(self):
         self.__broadcasts("%s:%s:%f" % (self.father.uid, 'peer-logout', self.father.local_last_ts))
-
-    def fid_alloc1(self, porpose_id, lid, rid):
-        self.__broadcasts("%s:fid-alloc1:%d:%d:%d" % (self.father.uid, porpose_id, lid, rid))
-
-    def fid_alloc2(self, porpose_id, lid, rid):
-        self.__broadcasts("%s:fid-alloc2:%d:%d:%d" % (self.father.uid, porpose_id, lid, rid))
-
-    def fid_reply(self, purpose_id, ans):
-        self.__broadcasts("%s:fid-reply:%d:%d" % (self.father.uid, purpose_id, ans))
 
     def peer_register(self, sender, ip, last_ts):
         self.new_peers[sender] = (ip, float(last_ts))
@@ -178,19 +169,6 @@ class PeersFinderSrv(SuperiorThread):
             elif msgbody == 'peer-logout':
                 LOG.debug(msg)
                 self.peer_unregister(sender)
-            elif msgbody == 'fid-alloc1':                   # try alloc
-                purpose_id, lid, rid = int(pieces[2]), int(pieces[3]), int(pieces[4])
-                self.fid_reply(purpose_id, self.cur_fid)
-            elif msgbody == 'fid-alloc2':                   # confirm fid
-                purpose_id, lid, rid = int(pieces[2]), int(pieces[3]), int(pieces[4])
-                self.next_fid = rid + 1
-            elif msgbody == 'fid-reply':                    # reply fid
-                purpose_id, fid = int(pieces[2]), int(pieces[3])
-                replys = self.fid_set.get(purpose_id, None)
-                if replys is None:
-                    LOG.debug("fid-reply process: no replys [%d]" % purpose_id)
-                replys.add(fid)
-                self.fid_set[purpose_id] = replys
             else:
                 LOG.debug("unknown msg: %s" % msg)
 
@@ -270,6 +248,7 @@ class MasterPoint(BasePoint):
         self.uid = socket.gethostname()        # UUID
         self.store_type = MachineType.PROCESS
         self.local_ip = get_ip_address(self.config_parser.get('base', 'interface'))
+        self.status_server = StatusServer(master=self, ip=self.local_ip, port=8081)
 
         sources_path = self.config_parser.get('base', 'sources_path')
         stores_path = self.config_parser.get('base', 'stores_path')
@@ -282,8 +261,8 @@ class MasterPoint(BasePoint):
         self.store_points = StorePoints(store_roots, self.redis_cli)    # store point
         self.store_points.start()
 
-        self.peers = {}
-        self.metas = {}                                 # all peers meta.
+        self.peers = {}                                 # {peer_name: {val}}
+        self.metas = {}                                 # {peer_name: {val}}
         self.local_metas = {}
         self.local_last_ts = 0                          # last local update timestamp
 
@@ -294,6 +273,15 @@ class MasterPoint(BasePoint):
         self.file_srv = SimpleFileSrv(self.local_ip, self.op_port)
         self.file_srv.start()
         self.__last_times = {}
+
+    def get_store_status(self):
+        return self.metas[self.uid]
+
+    def get_source_status(self):
+        return self.peers
+
+    def get_peers_status(self):
+        return self.peers
 
     def crash(self):
         pass
@@ -360,6 +348,8 @@ class MasterPoint(BasePoint):
             del_files = {}
             mv_files = {}           # TODO find by md5sum?
             if peer_name in self.metas:
+                add_files, del_files = meta_diff(remote_meta, self.local_metas)
+                """
                 remote_copy = remote_meta.copy()
                 for fn, vals in local_meta.items():
                     if fn in remote_meta:
@@ -367,6 +357,7 @@ class MasterPoint(BasePoint):
                     else:
                         del_files[fn] = vals
                 add_files = remote_copy
+                """
             else:
                 add_files = remote_meta
             self.metas[peer_name] = remote_meta
@@ -383,7 +374,7 @@ class MasterPoint(BasePoint):
                 continue
             peer_ip, peer_ts = peer_val
             prev_status = self.peers.get(peer_name, (0, 0))
-            LOG.debug("peer %s %d %d" % (peer_name, peer_ts, prev_status[1]))
+            LOG.debug("peer %s cur:%d prev:%d" % (peer_name, peer_ts, prev_status[1]))
             if peer_ts > prev_status[1]:
                 self.sync_one(peer_name, peer_ip)
         self.peers = peers.copy()
@@ -424,6 +415,7 @@ class MasterPoint(BasePoint):
 
     def run(self):
         # wait for local resources loaded.
+        self.status_server.start()
         self.load_infos()
 
         self.inited = False

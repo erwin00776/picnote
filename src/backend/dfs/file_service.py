@@ -42,7 +42,7 @@ class TCPClient:
         try:
             bs = self.sock.recv(size)
         except IOError as e:
-            LOG.debug(e.message)
+            LOG.error("recv error %s" % e.message)
             bs = None
         finally:
             return bs
@@ -101,21 +101,20 @@ class SimpleFileClient(TCPClient):
         n = 0
         buf = self.recv(self.SIZE)
         while buf or n < need_size:
-            if buf is None or len(buf) <= 0:
-                break
             fout.write(buf)
             n += len(buf)
             buf = self.recv(self.SIZE)
+            if buf is None or len(buf) <= 0:
+                break
         if n == need_size:
-            LOG.debug("recv: %s %d" % (remote_path, n))
             fout.flush()
             fout.close()
             os.chmod(local_path, stat.S_IRUSR + stat.S_IWUSR + stat.S_IRGRP + stat.S_IWGRP + stat.S_IROTH)
-            return True
-        else:
-            if fout:
-                fout.close()
-            return False
+        elif fout:
+            fout.close()
+            LOG.info("can not pull remote file, deleted failed file.")
+            os.remove(local_path)
+        return n
 
 
 class SimpleBaseHandler(threading.Thread):
@@ -251,7 +250,7 @@ class SimpleFileSrv(threading.Thread):
     def request_handle(self, request, client_addr):
         LOG.debug("recv request from %s" % str(client_addr))
 
-        while len(self.pool) > 5:
+        while len(self.pool) > 50:
             pool = set([])
             for t in self.pool:
                 if not t.job_done:
@@ -266,7 +265,7 @@ class SimpleFileSrv(threading.Thread):
         elif cmd == 'push':
             handler = WriteFileHandler(request, client_addr, self)
         else:
-            LOG.debug("can not response cmd: %s" % cmd)
+            LOG.error("can not response cmd: %s" % cmd)
 
         if handler is not None:
             self.pool.add(handler)
