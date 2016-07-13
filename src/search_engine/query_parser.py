@@ -13,10 +13,14 @@ class QueryParser:
         r = {}
         seg_list = jieba.cut_for_search(query_string)
         for token in seg_list:
+            token = token.strip()
+            if not token or len(token) < 1:
+                continue
+
             fmap = self.index_store.query(token)
-            for k, v in fmap.items():
-                if k in r:
-                    r[k] = r[k].intersection(set(v))
+            for field, val in fmap.items():
+                if field in r:
+                    r[field] = r[field].intersection(set(val))
                 else:
-                    r[k] = set(v)
+                    r[field] = set(val)
         return r
