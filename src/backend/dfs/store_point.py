@@ -312,9 +312,6 @@ class StorePoint(BasePoint):
             try_cur = 0
             src = val['src']
             dst = val['dst']
-            if not dst:
-                # TODO
-                dst = val['dst']
             while try_cur < try_max:
                 shutil.copyfile(src, dst)
                 if os.path.exists(dst):
