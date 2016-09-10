@@ -112,7 +112,7 @@ class SimpleFileClient(TCPClient):
             os.chmod(local_path, stat.S_IRUSR + stat.S_IWUSR + stat.S_IRGRP + stat.S_IWGRP + stat.S_IROTH)
         elif fout:
             fout.close()
-            LOG.info("can not pull remote file, deleted failed file.")
+            LOG.warn("can not pull remote file, deleted failed file. [src:%s, n:%d]" % (remote_path, n))
             os.remove(local_path)
         return n
 

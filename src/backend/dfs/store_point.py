@@ -39,7 +39,6 @@ class StorePoints(SuperiorThread):
         self.redis_cli = redis_cli
         self.roots = roots
         self.cur_roots = []
-        # threading.Thread.__init__(self, name="StorePoints")
         SuperiorThread.__init__(self, name="StorePoints")
         self.store_points = {}
         self.scan_interval = 30
@@ -50,6 +49,10 @@ class StorePoints(SuperiorThread):
         self.run_first = False
 
     def get_metas(self):
+        """
+        get all metas in this machine.
+        :return: {md5id: {meta}}
+        """
         while not self.run_first:
             time.sleep(1)
         metas = {}
@@ -60,6 +63,11 @@ class StorePoints(SuperiorThread):
         return self.last_changed_ts, metas
 
     def add_local(self, root):
+        """
+        add local store point.
+        :param root:
+        :return: None
+        """
         self.points_lock.acquire()
         self.cur_roots.append(root)
         store_point = StorePoint(root, store_type=MachineType.STORE, redis_cli=self.redis_cli)
@@ -80,7 +88,7 @@ class StorePoints(SuperiorThread):
                 try:
                     store_point.store(None, None, val['md5id'], val)
                 except Exception as e:
-                    LOG.info("%s -- %s, %s" % (r, root, e.message))
+                    LOG.error("%s -- %s, %s" % (r, root, e.message))
         self.store_points[root] = store_point
         self.points_lock.release()
         LOG.info("StorePoint[%s] plugged." % root)
@@ -90,7 +98,11 @@ class StorePoints(SuperiorThread):
         del self.store_points[root]
         LOG.info("StorePoint[%s] unplugged." % root)
 
-    def refresh_roots(self):
+    def refresh_roots(self, need_balance=False):
+        """
+        refresh local roots whether exists?
+        :return: None
+        """
         roots, added, deleted = [], [], []
         cur = set(self.cur_roots)
         for root in self.roots:
@@ -108,6 +120,20 @@ class StorePoints(SuperiorThread):
             self.remove_local(root)
         self.cur_roots = roots
 
+        if not need_balance:
+            return None
+        merged_metas = {}
+        for root, metas in self.store_metas:
+            for md5id, meta in metas:
+                merged_metas[md5id] = meta
+        for root, metas in self.store_metas:
+            if len(metas) < len(merged_metas):
+                for md5id, meta in merged_metas.items():
+                    if md5id not in metas:
+                        # add missing file.
+                        store_point = self.store_points.get(root)
+                        store_point.store(None, None, md5id=md5id, val=meta)
+
     def wait4init(self):
         if not self.roots and len(self.roots) == 0:
             return True
@@ -123,10 +149,16 @@ class StorePoints(SuperiorThread):
         return True
 
     def run(self):
-        self.refresh_roots()
+        self.refresh_roots(need_balance=True)
+        last_store_balance_ts = time.time()
         self.run_first = True
         while not self.is_shutdown:
-            self.refresh_roots()
+            cur_ts = time.time()
+            if cur_ts - last_store_balance_ts > 15 * 60:
+                self.refresh_roots(need_balance=True)
+                last_store_balance_ts = time.time()
+            else:
+                self.refresh_roots(need_balance=False)
             time.sleep(self.scan_interval)
 
     def store(self, peer_name, peer_ip, md5id, val):     # [TODO] lock store_points
@@ -135,7 +167,10 @@ class StorePoints(SuperiorThread):
         self.points_lock.acquire()
         for point_name, point in self.store_points.items():
             val_copy = val.copy()
-            point.store(peer_name, peer_ip, md5id, val_copy)
+            try:
+                point.store(peer_name, peer_ip, md5id, val_copy)
+            except IOError as e:
+                LOG.error("store error: %s, ip:%s, dst:%s" % (e.message, md5id, val['dst']))
         self.points_lock.release()
 
     def remove(self, val):
@@ -175,11 +210,16 @@ class StorePoint(BasePoint):
     def self_check(self):
         last_ts, meta = self.load_seq_pickle()
         file_list = self.scan_local()
-        file_list = set(file_list)
         self.store_meta = {}
         self.store_last_ts = 0
         for md5id, val in meta.items():
             if val['src'] in file_list:
+                meta_size, disc_size = val['size'], file_list[val['src']]
+                if meta_size > disc_size:
+                    # delete bad file
+                    LOG.warn("self check: deleted bad %s [%d, %d]" % (val['src'], meta_size, disc_size))
+                    os.remove(val['src'])
+                    continue
                 self.store_meta[md5id] = val
                 if val['mtime'] > self.store_last_ts:
                     self.store_last_ts = val['mtime']
@@ -212,13 +252,15 @@ class StorePoint(BasePoint):
         LOG.debug("load_seq pickle done")
         return last_ts, meta
 
-    def scan_local(self):                            # scan meta from disk
-        # TODO why core?
-        """ return file list of current disk """
+    def scan_local(self):
+        """
+        return file list of current disk
+        :return {src: size}
+        """
         scanner = FSScanner(to_monitor=self.root, need_thread=False)
         cur_meta, cur_ts = scanner.scan_once(skip_hidden=True)
         scanner.shutdown()
-        file_list = [val['src'] for _x, val in cur_meta.items()]
+        file_list = {val['src']: val['size'] for _x, val in cur_meta.items()}
         return file_list
 
     def default_configure(self):
@@ -280,8 +322,11 @@ class StorePoint(BasePoint):
         if not peer_ip and not os.path.exists(src):
             LOG.error("store error: file not exists: %s " % src)
             return
+
+        # get dst.
         md5id = val['md5id']
         dst = self.file_type.process(md5id, src)
+
         val_copy = val.copy()
         val_copy['dst'] = dst
         val['dst'] = dst
@@ -346,6 +391,9 @@ class StorePoint(BasePoint):
         except IOError as e:
             LOG.error("pull file error: %s" % str(val))
         return False
+
+    def logical_remove(self, src, val):
+        pass
 
     def remove(self, src, val):
         LOG.debug("removed %s" % src)

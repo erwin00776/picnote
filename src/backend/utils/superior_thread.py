@@ -34,14 +34,21 @@ _superior_daemon.start()
 
 class SuperiorThread(threading.Thread):
     def __init__(self, daemon=True, group=None, target=None, name=None,
-                 args=(), kwargs=None, verbose=None):
+                 args=(), kwargs=None, verbose=None, critical=False):
         threading.Thread.__init__(self, group, target, name, args, kwargs, verbose)
         self.daemon = daemon
+        self.critical = critical
+        if self.critical:
+            self.daemon = True
         if self.daemon:
             _superior_daemon.add(self)
 
     def crash(self):
         LOG.debug("%s crashed." % self.name)
+        if self.critical:
+            LOG.fatal("(Thread) %s is critical, system exited.")
+            import sys
+            sys.exit(-1)
 
     def run(self):
         threading.Thread.run(self)

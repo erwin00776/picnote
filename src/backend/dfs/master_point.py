@@ -54,11 +54,12 @@ class PeersFinderSrv(SuperiorThread):
     broadcasts_port = 12345
 
     def __init__(self, father):
-        SuperiorThread.__init__(self, daemon=True, name="PeersFinderSrv-%d" % get_tid())
+        SuperiorThread.__init__(self, daemon=True, name="PeersFinderSrv-%d" % get_tid(), critical=True)
         self.is_shutdown = False
         self.heartbeat_interval = 15        # seconds
-        self.heartbeat_thread = SuperiorThread(target=self.heartbeat)
-        self.heartbeat_thread.setName("PeersFinder-Heartbeat-%d" % get_tid())
+        self.heartbeat_thread = SuperiorThread(target=self.heartbeat,
+                                               name="PeersFinder-Heartbeat-%d" % get_tid(),
+                                               critical=True)
         self.new_peers = {}
         self.peers = {}
         self.father = father
@@ -103,46 +104,6 @@ class PeersFinderSrv(SuperiorThread):
 
     def shutdown(self):
         self.is_shutdown = True
-
-    def fid_alloc(self, size, wait_max=30):
-        if size < 1:
-            return True, 0
-        if len(self.peers) == 0:        # wait for another peers.
-            return False, -1
-        purpose_id = int(time.time() * 1000000 % 10000000000000)
-        got = False
-        lid, rid = -1, -1
-        wait_time = 0
-        while not got:                  # got enough fids?
-            lid, rid = self.next_fid, self.next_fid + size
-            self.fid_set[purpose_id] = FID(purpose_id, lid, rid)
-            self.fid_alloc1(purpose_id, lid, rid)
-            cur_wait_time = 0
-            while cur_wait_time < 10:       # try times
-                fid = self.fid_set.get(purpose_id, None)
-                if fid is not None and len(fid.fids) == len(self.peers):
-                    check = True
-                    for remote_fid in fid.fids:
-                        if remote_fid > lid:
-                            check = False
-                            self.next_fid = remote_fid + 1
-                            break
-                    got = check
-                    if got:
-                        break
-                cur_wait_time += 1
-                time.sleep(1)
-            wait_time += 10
-            if wait_time > wait_max:
-                break
-        if got:
-            self.fid_alloc2(purpose_id, lid, rid)
-            self.cur_fid = rid + 1
-            self.next_fid = self.cur_fid + 1
-            del self.fid_set[purpose_id]
-            return True, lid
-        del self.fid_set[purpose_id]
-        return False, -1
 
     def run(self):
         try:
@@ -243,12 +204,14 @@ class MasterPoint(BasePoint):
         self.inited = False
 
         BasePoint.__init__(self)
-        threading.Thread.__init__(self, name="MasterPoint-%d" % get_tid())
+        # threading.Thread.__init__(self, name="MasterPoint-%d" % get_tid())
+        SuperiorThread.__init__(self, name="MasterPoint-%d"%get_tid(), daemon=True, critical=True)
 
         self.uid = socket.gethostname()        # UUID
         self.store_type = MachineType.PROCESS
         self.local_ip = get_ip_address(self.config_parser.get('base', 'interface'))
-        self.status_server = StatusServer(master=self, ip=self.local_ip, port=8081)
+        status_port = int(self.config_parser.get('server', 'status_port'))
+        self.status_server = StatusServer(master=self, ip=self.local_ip, port=status_port)
 
         sources_path = self.config_parser.get('base', 'sources_path')
         stores_path = self.config_parser.get('base', 'stores_path')
@@ -316,9 +279,12 @@ class MasterPoint(BasePoint):
         for (f, val) in del_files.items():
             self.store_points.remove(f)
 
-    def handle_from_local(self, add_files):
+    def handle_from_local(self, add_files, del_files):
         for md5id, val in add_files.items():
             self.store_points.store(None, None, val['md5id'], val)
+        for md5id, val in del_files.items():
+            # TODO handle deleted file: logical del from redis?
+            pass
 
     def sync_one(self, peer_name, peer_ip):
         """
@@ -341,6 +307,7 @@ class MasterPoint(BasePoint):
             while len(body) < body_len:
                 body_extra = sock.recv(body_len - len(body))
                 body += body_extra
+
             remote_meta = json.loads(body)
             LOG.debug("remote_meta %s" % str(remote_meta))
 
@@ -349,15 +316,6 @@ class MasterPoint(BasePoint):
             mv_files = {}           # TODO find by md5sum?
             if peer_name in self.metas:
                 add_files, del_files = meta_diff(remote_meta, self.local_metas)
-                """
-                remote_copy = remote_meta.copy()
-                for fn, vals in local_meta.items():
-                    if fn in remote_meta:
-                        del remote_copy[fn]
-                    else:
-                        del_files[fn] = vals
-                add_files = remote_copy
-                """
             else:
                 add_files = remote_meta
             self.metas[peer_name] = remote_meta
@@ -365,6 +323,9 @@ class MasterPoint(BasePoint):
             self.handle_from_remote(peer_ip, add_files, del_files)
         except ValueError as e:
             LOG.debug("sync error: %s, body: %s" % (e.message, body))
+
+    def get_metas(self, peer_name):
+        return self.metas.get(peer_name, None)
 
     def check_peers(self, peers):
         """ handle diff for every peers"""
@@ -380,13 +341,13 @@ class MasterPoint(BasePoint):
         self.peers = peers.copy()
 
     def check_sources(self):
-        # compare local files.
+        # compare local s.
         src_last_ts, source_metas, src_added, src_deleted = self.source_points.get_metas()
         soe_last_ts, store_metas = self.store_points.get_metas()
         add_files, del_files = meta_diff(source_metas, store_metas, detail_cmp=True)
         if len(add_files) > 0:
             LOG.info("check sources found: %d" % len(add_files))
-        self.handle_from_local(add_files)
+        self.handle_from_local(add_files, del_files)
         self.local_last_ts = src_last_ts if src_last_ts > soe_last_ts else soe_last_ts
         return source_metas, store_metas
 
@@ -429,8 +390,8 @@ class MasterPoint(BasePoint):
 
         # process local sources when started.
         source_metas, store_metas = self.check_sources()
-        LOG.info("#1 %s" % str(source_metas))
-        LOG.info("#2 %s" % str(store_metas))
+        LOG.info("#1(sources) %s" % str(source_metas))
+        LOG.info("#2(stores) %s" % str(store_metas))
 
         self.is_running = True
 
@@ -450,9 +411,9 @@ class MasterPoint(BasePoint):
                 if new_peers and len(new_peers) > 0:
                     self.dump_infos()
 
-                time.sleep(2)
+                time.sleep(23)
         except IOError as e:
-            LOG.debug(e.message)
+            LOG.error("master io error: ", e.message)
 
 
 if __name__ == '__main__':

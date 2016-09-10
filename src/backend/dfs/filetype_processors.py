@@ -83,6 +83,9 @@ class MusicProcessor(BaseProcessor):
         if not self.match(filename):
             return False, None
         # store by artists
+        if not os.path.exists(filename):
+            dst = os.path.join(self.store_path, os.path.basename(filename))
+            return True, dst
         tag = eyed3.load(filename)
         artist = None
         album = None
