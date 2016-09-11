@@ -122,6 +122,17 @@ class FileTypeHelper:
         self._processors.append(MusicProcessor(self.store_path, "musics", self.redis_cli))
         self._processors.append(DefaultProcessor(self.store_path, "default", self.redis_cli))
 
+    def pre_process(self, md5id, filename):
+        """ generate temp dst path """
+        tmp_dst = os.path.join(self.store_path, "tmp", os.path.basename(filename))
+        d = os.path.dirname(tmp_dst)
+        try:
+            if not os.path.exists(d):
+                os.makedirs(d, mode=0775)
+        except OSError as e:
+            pass
+        return tmp_dst
+
     def process(self, md5id, filename):
         """ it must be return absolute path. """
         dst = None

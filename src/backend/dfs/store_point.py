@@ -325,16 +325,16 @@ class StorePoint(BasePoint):
 
         # get dst.
         md5id = val['md5id']
-        dst = self.file_type.process(md5id, src)
+        tmp_dst = self.file_type.pre_process(md5id, src)
 
         val_copy = val.copy()
-        val_copy['dst'] = dst
-        val['dst'] = dst
+        val_copy['dst'] = tmp_dst
+        val['dst'] = tmp_dst
         if peer_ip is not None:
             self.__store(peer_name, peer_ip, md5id, val_copy, fn=self.__store_from_remote)
         else:
             self.__store(peer_name, peer_ip, md5id, val_copy, fn=self.__store_from_local)
-        self.update_seq('A', md5id, val)
+        # self.update_seq('A', md5id, val)
 
     def __store(self, peer_name, peer_ip, md5id, val, fn):
         while len(self.thread_pool) >= self.max_thread:
@@ -351,17 +351,35 @@ class StorePoint(BasePoint):
         self.thread_pool.append(t)
         t.start()
 
+    def __post_store(self, md5id, tmp_dst, src, expect_size, metas):
+        if not os.path.exists(tmp_dst):
+            LOG.warn("post store: tmp dst file does not exists.")
+            return False
+        try:
+            st = os.stat(tmp_dst)
+            if st.st_size != expect_size and expect_size > 0:
+                LOG.warn("post store: tmp dst file size diff: %d %d." % (st.st_size, expect_size))
+                return False
+            dst = self.file_type.process(md5id, tmp_dst)
+            shutil.move(tmp_dst, dst)
+            metas['dst'] = dst
+            self.update_seq('A', md5id, metas)
+        except IOError as e:
+            LOG.error("post store: ioerror, %s" % e.message)
+            return False
+
     def __store_from_local(self, peer_name, peer_ip, md5id, val, try_max=5):
         assert (val['src'] and val['dst'])
         try:
             try_cur = 0
             src = val['src']
-            dst = val['dst']
+            tmp_dst = val['dst']
             while try_cur < try_max:
-                shutil.copyfile(src, dst)
-                if os.path.exists(dst):
-                    st = os.stat(dst)
+                shutil.copyfile(src, tmp_dst)
+                if os.path.exists(tmp_dst):
+                    st = os.stat(tmp_dst)
                     if val['size'] == st.st_size:
+                        self.__post_store(md5id, tmp_dst, src, -1, val)
                         return True
                 try_cur += 1
         except IOError as e:
@@ -378,11 +396,12 @@ class StorePoint(BasePoint):
             file_client = SimpleFileClient(peer_ip, 8073)
             try_cur = 0
             src = val['src']
-            dst = val['dst']
+            tmp_dst = val['dst']
             size = val['size']
             while try_cur < try_max:
-                n = file_client.pull(src, dst, size)
+                n = file_client.pull(src, tmp_dst, size)
                 if size == n:
+                    self.__post_store(md5id, tmp_dst, src, size, val)
                     return True
                 try_cur += 1
                 time.sleep(1)
