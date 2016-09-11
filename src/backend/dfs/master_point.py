@@ -6,11 +6,15 @@ import json
 import os
 import socket
 import struct
-import threading
 import time
 from SocketServer import BaseRequestHandler
 
 import redis
+
+import sys
+if len(sys.argv) > 1:
+    print("adding search path: %s" % sys.argv[1])
+    sys.path.append(sys.argv[1])
 
 from base_point import BasePoint
 from base_point import MachineType
@@ -418,9 +422,13 @@ class MasterPoint(BasePoint):
 
 if __name__ == '__main__':
     config_parser = None
-    if os.path.exists('simple_dfs.cfg'):
+
+    config_path = "simple_dfs.cfg"
+    if len(sys.argv) > 2:
+        config_path = sys.argv[2]
+    if os.path.exists(config_path):
         config_parser = ConfigParser.SafeConfigParser()
-        config_parser.read('simple_dfs.cfg')
+        config_parser.read(config_path)
     master_point = MasterPoint(config_parser)
     master_point.start()
     master_point.join()
