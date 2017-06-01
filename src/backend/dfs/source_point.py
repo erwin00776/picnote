@@ -31,7 +31,8 @@ class SourcePoints(SuperiorThread):
     def crash(self):
         pass
 
-    def hashcode(self, s):
+    @staticmethod
+    def hashcode(s):
         m = hashlib.md5()
         m.update(s)
         return m.hexdigest()
@@ -66,7 +67,7 @@ class SourcePoints(SuperiorThread):
             add_roots, del_roots = self.refresh_sources()
             self.start_workers(add_roots, del_roots)
             self.merge_metas()
-            time.sleep(5)
+            time.sleep(10)
 
     def merge_metas(self):
         metas = {}

@@ -16,7 +16,7 @@ class StatusHandler(BaseHTTPServer.BaseHTTPRequestHandler):
             for md5id, val in store_status.items():
                 buf += "%s %s<br/>" % (md5id, str(val))
             buf += "</br></br>"
-            #buf = "<b>Store Status</b> <br/> %s <br/><br/>" % str(store_status)
+            # buf = "<b>Store Status</b> <br/> %s <br/><br/>" % str(store_status)
             peers_status = self.server.master.get_peers_status()
             if len(peers_status) == 0:
                 buf += "<b>(No others peers!</b><br/>"

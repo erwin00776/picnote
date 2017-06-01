@@ -8,6 +8,7 @@ import time
 from src.backend.utils.dfs_log import LOG
 from src.backend.utils.superior_thread import SuperiorThread
 
+
 def get_tid():
     tid = ctypes.CDLL('libc.so.6').syscall(186)
     return tid
@@ -27,7 +28,6 @@ class FSScanner(SuperiorThread):
         self.last_ctime = 0
         self.inited = False
         if need_thread:
-            # threading.Thread.__init__(self)
             SuperiorThread.__init__(self)
 
     def crash(self):

@@ -116,11 +116,11 @@ class FileTypeHelper:
         self._register()
 
     def _register(self):
+        self._processors.append(DefaultProcessor(self.store_path, "default", self.redis_cli))
         self._processors.append(PhotoProcessor(self.store_path, "photos",  self.redis_cli))
         self._processors.append(PdfProcessor(self.store_path, "pdf",  self.redis_cli))
         self._processors.append(DocProcessor(self.store_path, "doc", self.redis_cli))
         self._processors.append(MusicProcessor(self.store_path, "musics", self.redis_cli))
-        self._processors.append(DefaultProcessor(self.store_path, "default", self.redis_cli))
 
     def pre_process(self, md5id, filename):
         """ generate temp dst path """
@@ -136,7 +136,6 @@ class FileTypeHelper:
     def process(self, md5id, filename):
         """ it must be return absolute path. """
         dst = None
-        # md5id = val['md5id']
         for p in self._processors:
             is_break, dst = p.process(md5id, filename)
             if is_break:

@@ -3,7 +3,8 @@ import redis
 import datetime
 import sys
 sys.path.append("..")
-from common.base import *
+#from common.base import *
+from src.common.base import *
 
 
 class RedisStore:
@@ -13,10 +14,12 @@ class RedisStore:
     def __init__(self, addr="127.0.0.1", port=6379, db=0):
         self.r = redis.Redis(host=addr, port=port, db=db)
 
-    def __convert_second_tblname(self, tbl):
+    @staticmethod
+    def _convert_second_tblname(tbl):
         return "__st_%s" % tbl
 
-    def __ts2score(self, ts):
+    @staticmethod
+    def _ts2score(ts):
         ''' timestamp trim to timestamp of day '''
         try:
             dt = datetime.datetime.fromtimestamp(int(ts))
@@ -28,26 +31,24 @@ class RedisStore:
         return score
 
     def _put_second_index(self, tbl, score, key):
-        tbl = self.__convert_second_tblname(tbl)
+        tbl = RedisStore._convert_second_tblname(tbl)
         self.r.rpush(score, key)
         self.r.zadd(tbl, score, score)
 
     def _del_second_index(self, tbl, score, key):
-        tbl = self.__convert_second_tblname(tbl)
+        tbl = RedisStore._convert_second_tblname(tbl)
         self.r.zrem(tbl, score)
         self.r.lrem(score, key, num=0)
 
     def _range_second_index(self, tbl, score_begin, score_end):
-        tbl = self.__convert_second_tblname(tbl)
+        tbl = RedisStore._convert_second_tblname(tbl)
         return self.r.zrangebyscore(tbl, score_begin, score_end)
 
     def put_timeline(self, ts, key):
-        score = self.__ts2score(ts)
+        score = RedisStore._ts2score(ts)
         self._put_second_index('timeline', score, key)
 
     def del_timeline(self, id):
-        # score = self.__ts2score(key)
-        score = None
         ttime = self.r.hget(id, 'ttime')
         if ttime is not None:
             score = ttime
@@ -68,9 +69,9 @@ class RedisStore:
             pics_list = pics_list + tmplist
         return pics_list
 
-
     def append_id(self, id, path):
-        ''' [id0, id1, id...] '''
+        """[id0, id1, id...]
+        """
         self.r.rpush("pic_ids", id)
         # self.put_id2path(id, path)
 
@@ -151,7 +152,6 @@ class RedisStore:
         for (y, month_list) in dates.items():
             dates[y] = sorted(set(month_list))
         return dates
-
 
 
 if __name__ == '__main__':

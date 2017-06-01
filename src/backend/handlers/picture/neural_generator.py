@@ -3,7 +3,8 @@ import os
 import sys
 import json
 sys.path.append("..")
-from common.base import *
+#from common.base import *
+from src.common.base import *
 
 
 class NeuralGenerator:
@@ -14,10 +15,19 @@ class NeuralGenerator:
         vis_path = "%s/vis/vis.json" % NEURAL_TALK
         if os.path.exists(vis_path):
             os.remove(vis_path)
-        export = "export PATH=/usr/local/cuda-7.5/bin:$PATH;" \
-                 " export LD_LIBRARY_PATH=/usr/lib/x86_64-linux-gnu/cudnn4/lib64:/home/erwin/cbuild/CBLAS/lib:/usr/local/cuda-7.5/lib64:" \
+        export = "export PATH=/usr/local/cuda/bin:$PATH;" \
+                 " export LD_LIBRARY_PATH=/home/erwin/cbuild/CBLAS/lib:/usr/local/cuda/lib64" \
                  "f$LD_LIBRARY_PATH"
-        cmd = "%s; cd %s; /bin/sh %s/eval.sh %s %d" % (export, NEURAL_TALK, NEURAL_TALK, path, nums)
+        cmd = "cd %s; /bin/sh %s/eval.sh %s %d" % (NEURAL_TALK, NEURAL_TALK, path, nums)
+        print(cmd)
+        os.system(cmd)
+        return self.get_result()
+
+    def generate_by_list(self, list_file_path, nums):
+        vis_path = "%s/vis/vis.json" % NEURAL_TALK
+        if os.path.exists(vis_path):
+            os.remove(vis_path)
+        cmd = "cd %s; /bin/sh %s/eval_list.sh %s %d" % (NEURAL_TALK, NEURAL_TALK, list_file_path, nums)
         print(cmd)
         os.system(cmd)
         return self.get_result()

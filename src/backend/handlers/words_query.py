@@ -4,9 +4,11 @@ import sys
 import json
 import nltk
 sys.path.append("..")
-from common.base import *
-from store.redis_store import RedisStore
-from backend.words_processors import WordsProcessors
+#from common.base import *
+from src.common.base import *
+from src.store.redis_store import RedisStore
+#from backend.words_processors import WordsProcessors
+from src.backend.handlers.words_processors import WordsProcessors
 
 class WordsQuery:
     def __init__(self):

@@ -113,7 +113,10 @@ class SimpleFileClient(TCPClient):
         elif fout:
             fout.close()
             LOG.warn("can not pull remote file, deleted failed file. [src:%s, n:%d]" % (remote_path, n))
-            os.remove(local_path)
+            try:
+                os.remove(local_path)
+            except OSError as e:
+                LOG.warn("not tmp file, skip: " + e.message + " " + local_path)
         return n
 
 

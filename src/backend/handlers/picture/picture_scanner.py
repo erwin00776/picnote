@@ -1,9 +1,6 @@
+#coding=utf-8
 import os
-import hashlib
-import math
-import json
-import logging
-import datetime
+
 '''
 import inotify
 import inotify.adapters
@@ -15,29 +12,29 @@ from common.base import *
 from store.redis_store import RedisStore
 from picture_watcher import PictureHandler
 from picture_watcher import PictureWatcher
-from words_processors import PicturesNote
+from src.backend.handlers.words_processors import PicturesNote
 
 
 class PictureScanner:
-    def __init__(self, dirpath):
-        self.dirpath = dirpath
-        self.store = RedisStore()
-        self.handler = PictureHandler()
-        self.pn = PicturesNote()
+    def __init__(self, dir_list, redis_db=5):
+        self.dir_list = dir_list
+        self.store = RedisStore(db=redis_db)
+        self.handler = PictureHandler(redis_db=redis_db)
+        self.pn = PicturesNote(redis_db=redis_db)
         self.tmp_modified_files = []
         self.modified_files = []
         self.MODIFIED_TIME_MAX = 15  # seconds
         self.MODIFIED_TIME_MIN = 0.5  # seconds
 
+    # 暂时没用
     def watch_dir(self, dirnames):
-        '''
+        """
         :param dirnames:
         :return:
          type 1: add
          type 2: del
          type 3: rename
-        '''
-        # ino = inotify.adapters.Inotify()
+        """
         ino = None
         try:
             for dirname in dirnames:
@@ -93,11 +90,6 @@ class PictureScanner:
             for dirname in dirnames:
                 ino.remove_watch(dirname)
 
-    def scan_all_dir(self, dirnames):
-        ''' scan a directory list '''
-        for dirname in dirnames:
-            self.scan_dir(dirname)
-
     def check_last_scan(self, dirpath):
         if os.path.dirname(dirpath):
             p = os.path.join(dirpath, LAST_SCAN_FILENAME)
@@ -115,6 +107,7 @@ class PictureScanner:
                 return True, 0
             except ValueError as e:
                 return True, 0
+        return False, 0
 
     def update_last_scan(self, dirpath):
         if os.path.dirname(dirpath):
@@ -128,37 +121,41 @@ class PictureScanner:
                 if fout is not None:
                     fout.close()
 
-    def scan_dir(self, dirname):
-        ''' scan a directory '''
-        files = os.listdir(dirname)
-        updated, ts_last = self.check_last_scan(dirname)     # TODO return ts, identy file.
+    def scan_dir(self, dir_name):
+        """ scan a directory """
+        files = os.listdir(dir_name)
+        updated, ts_last = self.check_last_scan(dir_name)     # TODO return ts, identy file.
         nums = 0
         for filename in files:
             if os.path.isdir(filename) or filename[-3].lower() in PICTURE_SUFFIXS:
                 continue
-            path = os.path.join(dirname, filename)
+            path = os.path.join(dir_name, filename)
             st = os.stat(path)
-            nums = nums + 1
-            if updated and int(st.st_mtime) > ts_last:
+            nums += 1
+            if int(st.st_mtime) > ts_last:
                 LOGGER.info("adding file %s" % path)
                 self.handler.created(path)
+        """
         if updated:
-            self.update_last_scan(dirname)
-
-            self.pn.gen_notes(dirname)
+            self.update_last_scan(dir_name)
+            self.pn.gen_notes(dir_name)
+        """
 
     def run(self):
-        self.scan_dir(self.dirpath)
+        for dir_name in self.dir_list:
+            print("scan dir: %s" % dir_name)
+            self.scan_dir(dir_name)
+            self.update_last_scan(dir_name)
 
 
 if __name__ == '__main__':
-    # start a process to scan
-    dirpath = SYSPATH_PREFIX + "/pictures"
-    pic_scanner = PictureScanner(dirpath)
+    # scan pictures
+    dirs = ['/media/erwin/Data1/20160620', '/home/erwin/Pictures/nerual_talk']
+    pic_scanner = PictureScanner(dirs)
     pic_scanner.run()
 
+    # inotify pictures
     pic_watcher = PictureWatcher()
-    pic_watcher.init(dirpath, pic_scanner.handler)
+    pic_watcher.init(dirs, pic_scanner.handler)
     pic_watcher.start()
     pic_watcher.join()
-    #pic_scanner.watch_dir([dirpath])

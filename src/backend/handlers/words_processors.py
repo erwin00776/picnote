@@ -1,13 +1,18 @@
 
+import hashlib
 import os
 import sys
-import json
+
 import nltk
-import hashlib
+
 sys.path.append("..")
-from common.base import *
-from store.redis_store import RedisStore
-from neural_generator import NeuralGenerator
+#from common.base import *
+#from store.redis_store import RedisStore
+from src.backend.handlers.picture.neural_generator import NeuralGenerator
+from src.common.base import *
+from src.store.redis_store import RedisStore
+
+
 
 class BaseProcessor:
     def process(self, wordlist):
@@ -28,8 +33,8 @@ class FilterProcessor(BaseProcessor):
                 for line in lines:
                     line = line.strip()
                     self.stopwords.add(line)
-        print("loading stopwords " + str(self.stopwords))
-        LOGGER.info("loading stopwords %s" % str(self.stopwords))
+        # print("loading stopwords " + str(self.stopwords))
+        # LOGGER.info("loading stopwords %s" % str(self.stopwords))
 
     def process(self, wordlist):
         rlist = []
@@ -87,9 +92,9 @@ class WordsProcessors:
 
 
 class PicturesNote:
-    def __init__(self):
+    def __init__(self, redis_db=5):
         self.wp = WordsProcessors()
-        self.store = RedisStore()
+        self.store = RedisStore(db=redis_db)
 
     def gen_notes(self, path, nums=None):
         if nums is None:
@@ -98,7 +103,7 @@ class PicturesNote:
             for filename in files:
                 if os.path.isdir(filename) or filename[-3].lower() in PICTURE_SUFFIXS:
                     continue
-                nums = nums + 1
+                nums += 1
         ng = NeuralGenerator()
         items = ng.generator(path, nums)
         for item in items:
@@ -106,19 +111,39 @@ class PicturesNote:
             caption = str(item['caption'])
             words = caption.split(' ')
             querys = self.wp.process(words)
-            print(querys)
             filename = os.path.basename(filepath)
             filename = filename.encode('utf-8')
             md5 = hashlib.md5()
             md5.update(filename)
-            id = md5.hexdigest()
-            self.add2store(querys, id, caption)
+            fid = md5.hexdigest()
+            self.add2store(querys, fid, caption)
         return querys
 
-    def add2store(self, querys, id, caption):
-        self.store.replace_meta(id, 'desc', caption)
+    def gen_notes_by_list(self, list_file_path, nums=0):
+        """
+        :param list_file_path: str
+        :param nums: int
+        :return: list[str]
+        """
+        ng = NeuralGenerator()
+        items = ng.generate_by_list(list_file_path, nums)
+        for item in items:
+            filepath = item['file_name']
+            caption = str(item['caption'])
+            words = caption.split(' ')
+            querys = self.wp.process(words)
+            filename = os.path.basename(filepath)
+            filename = filename.encode('utf-8')
+            md5 = hashlib.md5()
+            md5.update(filename)
+            fid = md5.hexdigest()
+            self.add2store(querys, fid, caption)
+        return querys
+
+    def add2store(self, querys, fid, caption):
+        self.store.replace_meta(fid, 'desc', caption)
         for q in querys:
-            self.store.add_query2id(q, id)
+            self.store.add_query2id(q, fid)
 
 
 if __name__ == '__main__':

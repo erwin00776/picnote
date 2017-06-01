@@ -10,7 +10,7 @@ import time
 from base_point import BasePoint
 from base_point import MachineType
 from fs_scanner import FSScanner
-from filetype_processors import FileTypeHelper
+from src.backend.handlers.filetype_processors import FileTypeHelper
 from src.backend.utils.dfs_log import LOG
 from src.backend.utils.superior_thread import SuperiorThread
 
@@ -63,8 +63,7 @@ class StorePoints(SuperiorThread):
         return self.last_changed_ts, metas
 
     def add_local(self, root):
-        """
-        add local store point.
+        """ add local store point.
         :param root:
         :return: None
         """
@@ -99,8 +98,7 @@ class StorePoints(SuperiorThread):
         LOG.info("StorePoint[%s] unplugged." % root)
 
     def refresh_roots(self, need_balance=False):
-        """
-        refresh local roots whether exists?
+        """ refresh local roots whether exists?
         :return: None
         """
         roots, added, deleted = [], [], []
@@ -178,7 +176,9 @@ class StorePoints(SuperiorThread):
 
 
 class StorePoint(BasePoint):
-    def __init__(self, root, store_type, redis_cli):
+    default_usage_percent = 0.7
+
+    def __init__(self, root, store_type, redis_cli, max_capacity_size=-1):
         BasePoint.__init__(self)
         self.file_type = FileTypeHelper(store_path=root, redis_cli=redis_cli)
         self.store_type = store_type
@@ -191,6 +191,7 @@ class StorePoint(BasePoint):
         self.seq_num = 0
         self.pickle_file = None
         self.seq_file = None
+        self.seq_update_lock = threading.RLock()
         self.last_pickle_ts = int(time.time())
         self.thread_pool = []
         self.max_thread = 5
@@ -199,7 +200,19 @@ class StorePoint(BasePoint):
         self.store_last_ts = 0
         self.redis_cli = redis_cli
         self.inited = False
+
+        if max_capacity_size <= 0:
+            max_capacity_size = self.get_disk_total_space() * self.default_usage_percent
+        self.total_files_size = 0
+        self.max_capacity_size = max_capacity_size
+
         LOG.info("** store point started %s" % self.root)
+
+    def get_disk_total_space(self):
+        """return in bytes
+        """
+        f = os.statvfs(self.root)
+        return f.f_frsize * f.f_blocks
 
     def first_inited(self):
         return self.inited
@@ -208,10 +221,15 @@ class StorePoint(BasePoint):
         return self.store_last_ts, self.store_meta
 
     def self_check(self):
+        """ load meta info from store dir,
+                and start self check.
+        :return:
+        """
         last_ts, meta = self.load_seq_pickle()
         file_list = self.scan_local()
         self.store_meta = {}
         self.store_last_ts = 0
+        self.total_files_size = 0
         for md5id, val in meta.items():
             if val['src'] in file_list:
                 meta_size, disc_size = val['size'], file_list[val['src']]
@@ -221,6 +239,7 @@ class StorePoint(BasePoint):
                     os.remove(val['src'])
                     continue
                 self.store_meta[md5id] = val
+                self.total_files_size += disc_size
                 if val['mtime'] > self.store_last_ts:
                     self.store_last_ts = val['mtime']
         self.inited = True
@@ -229,26 +248,36 @@ class StorePoint(BasePoint):
     def load_seq_pickle(self):
         meta = {}
         last_ts = 0
-        if os.path.exists(self.pickle_path):
-            self.pickle_file = open(self.pickle_path, 'r')
-            meta = pickle.load(self.pickle_file)
-            last_ts = pickle.load(self.pickle_file)
-            self.pickle_file.close()
-            self.pickle_file = None
-        if os.path.exists(self.seq_path):
-            self.seq_file = open(self.seq_path, 'r')
-            for line in self.seq_file.readlines():
-                line = line.strip()
-                op, md5id, val_str = line.split('$')
-                if op == 'D':
-                    del meta[md5id]
-                elif op == 'A':
-                    val = json.loads(val_str)
-                    if last_ts < val['mtime']:
-                        last_ts = val['mtime']
-                    meta[md5id] = val
-            self.seq_file.close()
-            self.seq_file = None
+        try:
+            if os.path.exists(self.pickle_path):
+                self.pickle_file = open(self.pickle_path, 'r')
+                meta = pickle.load(self.pickle_file)
+                last_ts = pickle.load(self.pickle_file)
+                self.pickle_file.close()
+                self.pickle_file = None
+            if os.path.exists(self.seq_path):
+                self.seq_file = open(self.seq_path, 'r')
+                for line in self.seq_file.readlines():
+                    line = line.strip('\n')
+                    try:
+                        op, md5id, val_str = line.split('$')
+                        if op == 'D':
+                            del meta[md5id]
+                        elif op == 'A':
+                            val = json.loads(val_str)
+                            if last_ts < val['mtime']:
+                                last_ts = val['mtime']
+                            meta[md5id] = val
+                    except:
+                        continue
+                self.seq_file.close()
+                self.seq_file = None
+        except IOError as e:
+            LOG.error("ioerror while loading meta and seq file: " + e.message + " " +
+                      self.pickle_path + " " + self.seq_path)
+        except TypeError as e:
+            LOG.error("type error while loading meta and seq file: " + e.message + " " +
+                      self.pickle_path + " " + self.seq_path)
         LOG.debug("load_seq pickle done")
         return last_ts, meta
 
@@ -282,13 +311,20 @@ class StorePoint(BasePoint):
 
     def update_pickle(self):
         try:
+            # in case of core dump while pickle dumping
+            # 1) first, write meta into tmp file;
+            pickle_path_tmp = self.pickle_path + ".tmp"
             if self.pickle_file is None or self.pickle_file.closed:
                 self.pickle_file = None
-                self.pickle_file = open(self.pickle_path, 'w')
+                self.pickle_file = open(pickle_path_tmp, 'w')
             pickle.dump(self.store_meta, self.pickle_file)
             pickle.dump(self.store_last_ts, self.pickle_file)
             self.pickle_file.close()
 
+            # 2) second, rename file name;
+            os.rename(pickle_path_tmp, self.pickle_path)
+
+            # 3) third, remove sequence file.
             self.seq_file.close()
             os.remove(self.seq_path)
             self.seq_file = None
@@ -299,23 +335,38 @@ class StorePoint(BasePoint):
             return False
 
     def update_seq(self, op, src, val):
-        if self.seq_file is None:
-            self.seq_file = open(self.seq_path, 'w')
+        new_total_file_size = val['size'] + self.total_files_size
+        if new_total_file_size > self.max_capacity_size:
+            LOG.error("store dir is fulled! max_capacity: %0.2f(MB), current: %0.2f(MB)" %
+                      (self.max_capacity_size, self.total_files_size))
+            return
+        with self.seq_update_lock:
+            if self.seq_file is None:
+                self.seq_file = open(self.seq_path, 'w')
 
-        val['src'] = val['dst']                     # reset val for local meta
-        val['dst'] = ''
-        self.store_meta[val['md5id']] = val
+            val['src'] = val['dst']                     # reset val for local meta
+            val['dst'] = ''
+            self.store_meta[val['md5id']] = val
 
-        self.seq_file.write("%s$%s$%s\n" % (op, val['md5id'], json.dumps(val)))
-        self.seq_file.flush()
-        self.seq_num += 1
-        cur_ts = int(time.time())
-        if self.seq_num > 20 or cur_ts - self.last_pickle_ts > 30:
-            self.update_pickle()
-            self.seq_num = 0
-            self.last_pickle_ts = cur_ts
+            self.total_files_size = new_total_file_size
 
-    def store(self, peer_name, peer_ip, md5id, val): # store one file
+            self.seq_file.write("%s$%s$%s\n" % (op, val['md5id'], json.dumps(val)))
+            self.seq_file.flush()
+            self.seq_num += 1
+            cur_ts = int(time.time())
+            if self.seq_num > 20 or cur_ts - self.last_pickle_ts > 30:
+                self.update_pickle()
+                self.seq_num = 0
+                self.last_pickle_ts = cur_ts
+
+    def store(self, peer_name, peer_ip, md5id, val):
+        """ store one file
+        :param peer_name:
+        :param peer_ip:
+        :param md5id:
+        :param val:
+        :return:
+        """
         if val['mtime'] > self.store_last_ts:
             self.store_last_ts = val['mtime']
         src = val['src']
@@ -334,7 +385,6 @@ class StorePoint(BasePoint):
             self.__store(peer_name, peer_ip, md5id, val_copy, fn=self.__store_from_remote)
         else:
             self.__store(peer_name, peer_ip, md5id, val_copy, fn=self.__store_from_local)
-        # self.update_seq('A', md5id, val)
 
     def __store(self, peer_name, peer_ip, md5id, val, fn):
         while len(self.thread_pool) >= self.max_thread:
@@ -369,6 +419,14 @@ class StorePoint(BasePoint):
             return False
 
     def __store_from_local(self, peer_name, peer_ip, md5id, val, try_max=5):
+        """ copy file from local disk to local store point
+        :param peer_name:   empty
+        :param peer_ip:     empty
+        :param md5id:       md5id
+        :param val:         meta info
+        :param try_max: int, max try count
+        :return:
+        """
         assert (val['src'] and val['dst'])
         try:
             try_cur = 0

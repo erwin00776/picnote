@@ -161,7 +161,6 @@ class MasterSyncSrv(SocketServer.TCPServer, SuperiorThread):
     def __init__(self, srv_addr, HandleClass, father):
         self.allow_reuse_address = True
         SocketServer.TCPServer.__init__(self, srv_addr, HandleClass)
-        # threading.Thread.__init__(self, name="MasterSyncSrv-%d" % get_tid())
         SuperiorThread.__init__(self, name="MasterSyncSrv-%d" % get_tid())
         self.father = father
 
@@ -182,6 +181,7 @@ def meta_diff(m1, m2, detail_cmp=False):
     """
     :param m1: compare hash
     :param m2: base meta hash
+    :param detail_cmp: compare with mtime & size
     :return: added/deleted
     """
     added, deleted = {}, m2.copy()
@@ -197,9 +197,9 @@ def meta_diff(m1, m2, detail_cmp=False):
 
 
 class MasterPoint(BasePoint):
-    public_port = 8071
-    sync_port = 8072
-    op_port = 8073
+    public_port = 8071          # port for
+    sync_port = 8072            # port for sync meta info
+    op_port = 8073              # port for scp files data
     is_running = True
 
     def __init__(self, config_parser):
@@ -208,8 +208,7 @@ class MasterPoint(BasePoint):
         self.inited = False
 
         BasePoint.__init__(self)
-        # threading.Thread.__init__(self, name="MasterPoint-%d" % get_tid())
-        SuperiorThread.__init__(self, name="MasterPoint-%d"%get_tid(), daemon=True, critical=True)
+        SuperiorThread.__init__(self, name="MasterPoint-%d" % get_tid(), daemon=True, critical=True)
 
         self.uid = socket.gethostname()        # UUID
         self.store_type = MachineType.PROCESS
@@ -276,7 +275,6 @@ class MasterPoint(BasePoint):
         self.__update_last_time('scan_self_store')
 
     def handle_from_remote(self, peer_ip, add_files, del_files):
-        # LOG.debug("sync from %s" % peer_ip)
         LOG.debug("$$$ %s\n" % str(add_files))
         for (f, val) in add_files.items():
             self.store_points.store('', peer_ip, f, val)
@@ -291,8 +289,7 @@ class MasterPoint(BasePoint):
             pass
 
     def sync_one(self, peer_name, peer_ip):
-        """
-        sync with one peer.
+        """sync with one peer.
         :param peer_name: peer name
         :param peer_ip: peer (ip, port)
         :return:
@@ -415,6 +412,7 @@ class MasterPoint(BasePoint):
                 if new_peers and len(new_peers) > 0:
                     self.dump_infos()
 
+                # why 23 seconds?
                 time.sleep(23)
         except IOError as e:
             LOG.error("master io error: ", e.message)
